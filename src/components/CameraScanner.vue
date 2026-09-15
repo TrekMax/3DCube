@@ -10,43 +10,87 @@ import {
   LoaderCircle,
   Cpu,
   Focus,
+  X,
 } from '@lucide/vue';
 import { COLORS, NAMES, TOP, type Face, type Sticker } from '../lib/cube';
 import { sampleGrid, type Detection } from '../lib/vision';
+import {
+  chooseCube,
+  intersectionOverUnion,
+  projectToViewport,
+  regionProblem,
+  type CubeDetection,
+  type Rect,
+} from '../lib/localization';
 import type { YoloDetector } from '../lib/yolo';
 const props = defineProps<{ face: Face; disabled: boolean }>();
 const emit = defineEmits<{ capture: [colors: Sticker[]]; model: [name: string] }>();
 const video = ref<HTMLVideoElement>(),
   guide = ref<HTMLDivElement>(),
   viewport = ref<HTMLDivElement>(),
-  fileInput = ref<HTMLInputElement>();
+  fileInput = ref<HTMLInputElement>(),
+  positionInput = ref<HTMLInputElement>();
 const active = ref(false),
   starting = ref(false),
   loading = ref(false),
+  processing = ref(false),
   message = ref(''),
-  modelName = ref('');
+  modelName = ref(''),
+  locatorName = ref('');
 const colors = ref<Sticker[]>(Array(9).fill('?')),
   boxes = ref<Detection[]>([]),
   stable = ref(0),
   latency = ref(0);
+const tracked = ref<CubeDetection | null>(null),
+  projected = ref<Rect | null>(null),
+  trackingMessage = ref('正在全画面寻找魔方…');
+const fault = ref<'cube' | 'stickers' | ''>('');
 const facing = ref<'environment' | 'user'>('environment');
 let stream: MediaStream | null = null,
   timer: ReturnType<typeof setTimeout>,
-  detector: YoloDetector | null = null;
+  detector: YoloDetector | null = null,
+  locator: YoloDetector | null = null;
 let disposed = false,
   generation = 0,
   previous = '',
   inference: Promise<void> | null = null;
-const crop = document.createElement('canvas');
+const crop = document.createElement('canvas'),
+  fullFrame = document.createElement('canvas');
 crop.width = crop.height = 320;
+const autoPosition = computed(() => !!locatorName.value);
+const overlayStyle = computed(() =>
+  projected.value
+    ? {
+        left: `${projected.value.x}px`,
+        top: `${projected.value.y}px`,
+        width: `${projected.value.width}px`,
+        height: `${projected.value.height}px`,
+      }
+    : {},
+);
 const canCapture = computed(
   () =>
     active.value &&
+    !loading.value &&
+    !processing.value &&
+    !fault.value &&
+    (!autoPosition.value || (!!tracked.value && !trackingMessage.value)) &&
     stable.value >= 3 &&
     !colors.value.includes('?') &&
     colors.value[4] === props.face &&
     !props.disabled,
 );
+function clearColors() {
+  colors.value = Array(9).fill('?');
+  boxes.value = [];
+  stable.value = 0;
+  previous = '';
+}
+function clearPosition() {
+  tracked.value = null;
+  projected.value = null;
+  clearColors();
+}
 watch(
   () => props.face,
   () => {
@@ -106,10 +150,8 @@ function stop() {
   stream = null;
   if (video.value) video.value.srcObject = null;
   active.value = false;
-  stable.value = 0;
-  previous = '';
-  colors.value = Array(9).fill('?');
-  boxes.value = [];
+  clearPosition();
+  trackingMessage.value = '正在全画面寻找魔方…';
 }
 async function switchCamera() {
   stop();
@@ -118,35 +160,81 @@ async function switchCamera() {
 }
 function schedule() {
   clearTimeout(timer);
-  if (!disposed && active.value)
-    timer = setTimeout(
-      () => {
-        inference = scan().finally(() => {
-          inference = null;
-          schedule();
-        });
-      },
-      detector ? 200 : 120,
-    );
+  if (disposed || !active.value || inference) return;
+  timer = setTimeout(
+    () => {
+      inference = scan().finally(() => {
+        inference = null;
+        schedule();
+      });
+    },
+    detector || locator ? 200 : 120,
+  );
 }
 async function scan() {
   const v = video.value,
-    view = viewport.value,
-    grid = guide.value;
-  if (!v || !view || !grid || v.readyState < 2 || loading.value || !active.value) return;
+    view = viewport.value;
+  if (!v || !view || v.readyState < 2 || loading.value || fault.value || !active.value) return;
   const current = generation,
-    startTime = performance.now();
-  const frame = view.getBoundingClientRect(),
-    box = grid.getBoundingClientRect();
-  const scale = Math.max(frame.width / v.videoWidth, frame.height / v.videoHeight);
-  const offsetX = (v.videoWidth * scale - frame.width) / 2,
-    offsetY = (v.videoHeight * scale - frame.height) / 2;
-  const sx = (box.left - frame.left + offsetX) / scale,
-    sy = (box.top - frame.top + offsetY) / scale;
-  crop
-    .getContext('2d', { willReadFrequently: true })!
-    .drawImage(v, sx, sy, box.width / scale, box.height / scale, 0, 0, 320, 320);
+    startTime = performance.now(),
+    frame = view.getBoundingClientRect();
+  let stage: 'cube' | 'stickers' = locator ? 'cube' : 'stickers';
+  let positionStable = true;
+  processing.value = true;
   try {
+    if (locator) {
+      fullFrame.width = v.videoWidth;
+      fullFrame.height = v.videoHeight;
+      fullFrame.getContext('2d')!.drawImage(v, 0, 0);
+      const candidates = await locator.locate(fullFrame);
+      if (disposed || current !== generation) return;
+      const previousBox = tracked.value,
+        found = chooseCube(candidates, previousBox);
+      if (!found) {
+        clearPosition();
+        trackingMessage.value = '未检测到魔方，请放入画面';
+        return;
+      }
+      tracked.value = found;
+      projected.value = projectToViewport(
+        found,
+        v.videoWidth,
+        v.videoHeight,
+        frame.width,
+        frame.height,
+      );
+      trackingMessage.value = regionProblem(found, v.videoWidth, v.videoHeight);
+      if (trackingMessage.value) {
+        clearColors();
+        return;
+      }
+      positionStable = !!previousBox && intersectionOverUnion(found, previousBox) >= 0.8;
+      // Read colors from the exact frame that produced this detection, not a later video frame.
+      crop
+        .getContext('2d', { willReadFrequently: true })!
+        .drawImage(
+          fullFrame,
+          found.x * v.videoWidth,
+          found.y * v.videoHeight,
+          found.width * v.videoWidth,
+          found.height * v.videoHeight,
+          0,
+          0,
+          320,
+          320,
+        );
+    } else {
+      const grid = guide.value;
+      if (!grid) return;
+      const box = grid.getBoundingClientRect(),
+        scale = Math.max(frame.width / v.videoWidth, frame.height / v.videoHeight);
+      const sx = (box.left - frame.left + (v.videoWidth * scale - frame.width) / 2) / scale;
+      const sy = (box.top - frame.top + (v.videoHeight * scale - frame.height) / 2) / scale;
+      crop
+        .getContext('2d', { willReadFrequently: true })!
+        .drawImage(v, sx, sy, box.width / scale, box.height / scale, 0, 0, 320, 320);
+    }
+    stage = 'stickers';
     const result = detector
       ? await detector.detect(crop)
       : { colors: sampleGrid(crop), detections: [] };
@@ -154,48 +242,74 @@ async function scan() {
     colors.value = result.colors;
     boxes.value = result.detections;
     const key = colors.value.join('');
-    stable.value = previous === key ? stable.value + 1 : 0;
+    stable.value = previous === key && positionStable ? stable.value + 1 : 0;
     previous = key;
-    latency.value = Math.round(performance.now() - startTime);
   } catch (error) {
     if (current !== generation || disposed) return;
-    message.value = `YOLO 推理失败：${(error as Error).message}。请重新加载模型。`;
-    const failed = detector;
-    detector = null;
-    modelName.value = '';
-    emit('model', '');
-    await failed?.release();
-    colors.value = Array(9).fill('?');
-    stable.value = 0;
-    boxes.value = [];
+    fault.value = stage;
+    message.value = `YOLO ${stage === 'cube' ? '定位' : '色块识别'}失败：${(error as Error).message}。请更换或停用对应模型。`;
+    clearPosition();
+    trackingMessage.value = '定位已暂停，请检查模型';
+  } finally {
+    processing.value = false;
+    latency.value = Math.round(performance.now() - startTime);
   }
 }
-async function loadModel(event: Event) {
+async function loadModel(event: Event, purpose: 'stickers' | 'cube') {
   const input = event.target as HTMLInputElement,
     file = input.files?.[0];
-  if (!file) return;
+  if (!file || loading.value) return;
   loading.value = true;
   message.value = '';
+  clearColors();
   try {
     await inference;
     const { YoloDetector } = await import('../lib/yolo');
-    const next = await YoloDetector.load(file);
+    const next = await YoloDetector.load(file, purpose);
     if (disposed) {
       await next.release();
       return;
     }
-    await detector?.release();
-    detector = next;
-    modelName.value = file.name;
-    emit('model', file.name);
-    stable.value = 0;
-    previous = '';
-    boxes.value = [];
+    if (purpose === 'cube') {
+      await locator?.release();
+      locator = next;
+      locatorName.value = file.name;
+    } else {
+      await detector?.release();
+      detector = next;
+      modelName.value = file.name;
+      emit('model', file.name);
+    }
+    if (fault.value === purpose) fault.value = '';
+    clearPosition();
+    trackingMessage.value = '正在全画面寻找魔方…';
   } catch (error) {
     message.value = `模型加载失败：${(error as Error).message}`;
   } finally {
     loading.value = false;
     input.value = '';
+  }
+}
+async function unloadModel(purpose: 'cube' | 'stickers') {
+  if (loading.value) return;
+  loading.value = true;
+  try {
+    await inference;
+    if (purpose === 'cube') {
+      await locator?.release();
+      locator = null;
+      locatorName.value = '';
+    } else {
+      await detector?.release();
+      detector = null;
+      modelName.value = '';
+      emit('model', '');
+    }
+    if (fault.value === purpose) fault.value = '';
+    message.value = '';
+    clearPosition();
+  } finally {
+    loading.value = false;
   }
 }
 function capture() {
@@ -208,9 +322,11 @@ function capture() {
 onBeforeUnmount(() => {
   disposed = true;
   stop();
-  void (inference ?? Promise.resolve()).finally(() => detector?.release());
+  void (inference ?? Promise.resolve()).finally(() =>
+    Promise.all([detector?.release(), locator?.release()]),
+  );
 });
-defineExpose({ openModelPicker: () => fileInput.value?.click(), stop });
+defineExpose({ openModelPicker: () => positionInput.value?.click(), stop });
 </script>
 <template>
   <div class="camera-section">
@@ -223,7 +339,11 @@ defineExpose({ openModelPicker: () => fileInput.value?.click(), stop });
         ><i />{{ active ? '摄像头已连接' : '等待连接' }}</span
       >
     </div>
-    <div ref="viewport" class="camera-viewport" :class="{ active }">
+    <div
+      ref="viewport"
+      class="camera-viewport"
+      :class="{ active, 'auto-position': active && autoPosition }"
+    >
       <video ref="video" autoplay playsinline muted v-show="active" />
       <div class="camera-topline">
         <span
@@ -234,7 +354,7 @@ defineExpose({ openModelPicker: () => fileInput.value?.click(), stop });
           <VideoOff :size="17" /></button
         ><Focus v-else :size="17" />
       </div>
-      <div ref="guide" class="scan-guide">
+      <div v-if="!active || !autoPosition" ref="guide" class="scan-guide">
         <span class="corner tl" /><span class="corner tr" /><span class="corner bl" /><span
           class="corner br"
         />
@@ -255,13 +375,41 @@ defineExpose({ openModelPicker: () => fileInput.value?.click(), stop });
         <div v-if="!active" class="camera-empty">
           <div class="scan-symbol"><ScanLine :size="36" :stroke-width="1.1" /></div>
           <h3>从一个面开始</h3>
-          <p>将魔方正对镜头，对齐取景框</p>
+          <p>{{ autoPosition ? '将魔方放入画面，自动寻找位置' : '加载定位模型可自动框选魔方' }}</p>
           <button class="btn primary" :disabled="starting" @click="start">
             <LoaderCircle v-if="starting" class="spin" :size="16" /><Camera v-else :size="16" />{{
               starting ? '正在连接…' : '开启摄像头'
             }}
           </button>
         </div>
+      </div>
+      <div
+        v-if="active && autoPosition && tracked"
+        class="tracked-cube"
+        :class="{ ready: !trackingMessage }"
+        :style="overlayStyle"
+      >
+        <span class="tracked-label">魔方 {{ Math.round(tracked.score * 100) }}%</span>
+        <div v-if="!trackingMessage" class="guide-grid"><span v-for="i in 9" :key="i" /></div>
+        <div
+          v-for="(box, i) in boxes"
+          :key="i"
+          class="detection-box"
+          :style="{
+            left: `${box.x * 100}%`,
+            top: `${box.y * 100}%`,
+            width: `${box.width * 100}%`,
+            height: `${box.height * 100}%`,
+            borderColor: COLORS[box.color],
+          }"
+        />
+      </div>
+      <div
+        v-if="active && autoPosition"
+        class="tracking-status"
+        :class="{ found: tracked && !trackingMessage }"
+      >
+        <Focus :size="14" />{{ trackingMessage || '已定位 · 保持一面正对镜头' }}
       </div>
       <div class="camera-bottomline">
         <span><span class="privacy-dot" />图像仅在本机处理</span
@@ -289,7 +437,9 @@ defineExpose({ openModelPicker: () => fileInput.value?.click(), stop });
       </div>
       <span>{{
         colors.includes('?')
-          ? '请对齐九个色块'
+          ? autoPosition
+            ? '等待清晰的九个色块'
+            : '请对齐九个色块'
           : colors[4] !== face
             ? '请转到指定中心色'
             : stable < 3
@@ -301,16 +451,67 @@ defineExpose({ openModelPicker: () => fileInput.value?.click(), stop });
       </button>
     </div>
     <p v-if="message" class="inline-error" role="alert">{{ message }}</p>
+    <div class="model-line locator-line">
+      <span :title="locatorName || '加载单类 cube 模型，自动跟随魔方位置'"
+        ><Focus :size="14" />{{
+          locatorName ? '自动定位 · ' + locatorName : '自动定位 · 未加载模型'
+        }}</span
+      >
+      <div class="model-actions">
+        <button class="text-btn" :disabled="loading" @click="positionInput?.click()">
+          <Upload :size="13" />{{ locatorName ? '更换定位模型' : '加载定位模型' }}</button
+        ><button
+          v-if="locatorName"
+          class="icon-button model-remove"
+          aria-label="停用定位模型"
+          :disabled="loading"
+          @click="unloadModel('cube')"
+        >
+          <X :size="13" />
+        </button>
+      </div>
+    </div>
     <div class="model-line">
       <span
-        ><Cpu :size="14" />{{ modelName ? 'YOLO · ' + modelName : '颜色采样模式'
+        ><Cpu :size="14" />{{
+          modelName
+            ? 'YOLO · ' + modelName
+            : autoPosition
+              ? '定位区域 · 颜色采样'
+              : '固定框 · 颜色采样'
         }}<small v-if="active">{{ latency }} ms</small></span
-      ><button class="text-btn" :disabled="loading" @click="fileInput?.click()">
-        <LoaderCircle v-if="loading" :size="13" class="spin" /><Upload v-else :size="13" />{{
-          loading ? '加载中…' : modelName ? '更换模型' : '加载 YOLO'
-        }}
-      </button>
+      >
+      <div class="model-actions">
+        <button class="text-btn" :disabled="loading" @click="fileInput?.click()">
+          <LoaderCircle v-if="loading" :size="13" class="spin" /><Upload v-else :size="13" />{{
+            loading ? '加载中…' : modelName ? '更换色块模型' : '加载色块模型'
+          }}</button
+        ><button
+          v-if="modelName"
+          class="icon-button model-remove"
+          aria-label="停用色块模型"
+          :disabled="loading"
+          @click="unloadModel('stickers')"
+        >
+          <X :size="13" />
+        </button>
+      </div>
     </div>
-    <input ref="fileInput" type="file" accept=".onnx" hidden @change="loadModel" />
+    <input
+      ref="positionInput"
+      type="file"
+      accept=".onnx"
+      aria-label="魔方定位 ONNX 模型"
+      hidden
+      @change="loadModel($event, 'cube')"
+    />
+    <input
+      ref="fileInput"
+      type="file"
+      accept=".onnx"
+      aria-label="色块识别 ONNX 模型"
+      hidden
+      @change="loadModel($event, 'stickers')"
+    />
   </div>
 </template>

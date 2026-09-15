@@ -62,7 +62,7 @@ test('camera failure and invalid ONNX model are explained', async ({ page }) => 
   await page.goto('/');
   await page.getByRole('button', { name: '开启摄像头' }).click();
   await expect(page.getByRole('alert')).toContainText(/摄像头|设备/);
-  await page.locator('input[type=file]').setInputFiles({
+  await page.getByLabel('色块识别 ONNX 模型').setInputFiles({
     name: 'bad.onnx',
     mimeType: 'application/octet-stream',
     buffer: Buffer.from('not an onnx model'),

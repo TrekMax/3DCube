@@ -26,9 +26,11 @@ npm run test:ui   # 浏览器端到端测试
 ## 已实现
 
 - 摄像头开启、停止、前后镜头切换，以及权限/设备错误提示。
-- 九宫格区域采色；连续多次结果一致后允许采集。
+- YOLO 全画面自动定位魔方，检测框随位置和距离变化；定位区域自动裁剪为九宫格采色。
+- 目标丢失立即清空识别结果；过小、截断或明显非正视时暂停采集；位置和颜色连续稳定后允许采集。
+- 定位模型、色块模型分别加载和停用；不加载定位模型时仍可使用固定九宫格。
 - 加载 Ultralytics ONNX 模型，通过 ONNX Runtime Web / WASM 本地检测色块。
-- 模型实际输入/输出检查、RGB NCHW 预处理、置信度过滤、NMS 去重、九宫格映射、检测框显示。
+- 模型实际输入/输出检查、RGB NCHW 预处理、等比例缩放与补边（LetterBox）、坐标还原、置信度过滤、NMS 去重和检测框显示。
 - 按六个中心颜色引导采集，明确每一面的朝上方向，摄像头画面不镜像。
 - 手动填色、擦除、旋转录入图；中心颜色固定；自动保存当前浏览器的录入草稿。
 - 检查每色 9 块、角/棱块组合、角块扭转、棱块翻转和排列奇偶性。
@@ -51,7 +53,7 @@ npm run test:ui   # 浏览器端到端测试
 | L 左面 | 橙     | 白                     |
 | B 后面 | 蓝     | 白                     |
 
-扫描期间只整体转动魔方，不转动单层。让一整面正对取景框、9 个色块分别落入网格。反光、阴影和红橙色差可能影响采色，请人工核对。不同中心配色的魔方需修改 `src/lib/cube.ts` 的映射和扫描提示。
+扫描期间只整体转动魔方，不转动单层。自动定位时可将魔方放在画面任意位置，保持一面正对镜头，检测框应贴合整面边缘；不需要对齐固定取景框。未加载定位模型时，仍需将 9 个色块分别对齐固定网格。反光、阴影和红橙色差可能影响采色，请人工核对。不同中心配色的魔方需修改 `src/lib/cube.ts` 的映射和扫描提示。
 
 求解后，把实物摆成 **白色在上、绿色在前、红色在右**。旋转方向按正对正在转动的那个面判断：`R` 顺时针 90°、`R'` 逆时针 90°、`R2` 旋转 180°。后退按钮会播放逆动作；若实物跟随，则也需执行逆动作。点击步骤或自动播放仅改变数字魔方，不代表实物已执行对应动作。
 
@@ -59,7 +61,34 @@ npm run test:ui   # 浏览器端到端测试
 
 使用用户指定的 [ultralytics/ultralytics](https://github.com/ultralytics/ultralytics)。默认训练架构选择 YOLO11n；前端也支持兼容的 YOLOv8 检测输出。
 
-**仓库没有附带已训练的真实魔方权重或标注数据。** Ultralytics 的通用 COCO 权重无法直接识别六种魔方色块。未加载专用模型时，程序明确显示「颜色采样模式」，可完成采集、校正与复原。训练脚本需要你提供标注数据；并未以测试用模型替代真实 YOLO 模型。
+**仓库没有附带已训练的真实魔方权重或标注数据。** Ultralytics 的通用 COCO 权重不能直接作为这里的单类魔方定位或六类色块模型。未加载专用模型时，程序明确显示固定框采样模式，可完成采集、校正与复原。训练脚本需要你提供标注数据；并未以测试用模型替代真实 YOLO 模型。
+
+### 自动定位模型（单类 cube）
+
+摄像头卡片底部新增 **「加载定位模型」**。加载后流程为：
+
+```text
+完整摄像头帧 → 等比例缩放/补边 → YOLO 魔方框 → 还原原始坐标
+→ 跟随目标 → 从同一帧裁剪魔方区域 → 颜色采样/可选色块 YOLO → 稳定后采集
+```
+
+自动定位显示整个摄像头画面，保留比例并用留黑边的方式适配窗口；横竖屏与窗口大小变化均按实际视频尺寸转换检测坐标。画面里有多个目标时优先跟随上一帧重叠的目标，否则选择最高置信度目标。未检测到魔方时立即暂停采集，不沿用上一帧的颜色或坐标。
+
+1. 以**完整摄像头图像**制作数据集，包含魔方出现在不同位置、不同大小、不同背景和光照的图片。
+2. 标注一个类别：`0 cube`，用紧贴外轮廓的矩形框包住完整魔方，尽量不包含手和背景。使用 YOLO detection 标签格式。
+3. 修改 `models/cube-locator.yaml` 的 `path`，指向你的数据集。目录与下方色块数据集结构相同。
+4. 安装下方 Python 依赖后执行：
+
+```bash
+python scripts/train_yolo.py --task cube --imgsz 320 --epochs 100 --device cpu
+
+# 或导出已经训练好的单类 cube 权重
+python scripts/export_yolo.py /path/to/cube-best.pt --task cube --imgsz 320
+```
+
+输出为 `models/cube-locator.onnx`。在页面「加载定位模型」中选中此文件。**色块模型不是定位模型，两个加载入口有各自的类别约定。** 仅加载定位模型即可自动定位并使用颜色采样；也可同时加载色块模型。
+
+定位只确定魔方的外接矩形，不会自动消除透视或区分同时可见的多个面。采集颜色时仍需保持**一个面正对镜头、按提示的相邻中心朝上**；明显过小、超出画面或长宽失衡的框会阻止采集。当前采用逐帧检测与相邻框重叠匹配，没有实现三维姿态估计或旋转动作跟踪。
 
 ### 1. 数据集
 
@@ -116,18 +145,19 @@ python scripts/export_yolo.py /path/to/best.pt \
 
 ### 4. 前端加载
 
-点击摄像头卡片底部「加载 YOLO」，选择 `.onnx` 文件。浏览器读取文件，模型不上传。
+点击摄像头卡片底部「加载色块模型」，选择六类色块 `.onnx` 文件；定位模型请使用「加载定位模型」。浏览器读取文件，模型不上传。
 
 - 输入：float32 `[1,3,S,S]`，静态正方形 RGB，取值 0–1。
-- 支持输出：`[1,10,N]`、`[1,N,10]`，或已处理的 `[1,N,6]`。
-- 原始输出为 `cx,cy,w,h` + 六类概率；六列输出为 `x1,y1,x2,y2,score,class_id`。
+- 色块模型输出：`[1,10,N]`、`[1,N,10]`，或已处理的 `[1,N,6]`。
+- 定位模型输出：`[1,5,N]`、`[1,N,5]`，或已处理的 `[1,N,6]`；唯一类别 ID 为 0（cube）。
+- 原始输出为 `cx,cy,w,h` + 各类别概率；六列输出为 `x1,y1,x2,y2,score,class_id`。
 - 坐标必须是输入图像像素单位；类别 ID 必须符合上表。
-- 仅支持色块检测，不支持 segmentation、pose、OBB 或 YOLOv5 的 objectness 输出。
-- 因前端按固定九宫格归位，请保持魔方面接近正视；尚未实现任意透视角度的自动面分割或连续转动追踪。
+- 支持上述魔方定位与色块检测；不支持 segmentation、pose、OBB 或 YOLOv5 的 objectness 输出。
+- 已自动定位的区域会映射到九宫格；请保持魔方面接近正视，尚未实现任意透视角度的自动面分割或连续转动追踪。
 
 推理异常会明确提示；专用模型加载成功后不会把采色结果伪装成 YOLO 输出。当前实现使用单线程 WASM，实际帧率取决于模型和设备。仅加载模型时才下载本地部署的 ONNX Runtime 资源。
 
-训练与导出依据：[Ultralytics 导出文档](https://docs.ultralytics.com/modes/export/)、[检测数据集格式](https://docs.ultralytics.com/datasets/detect/)。推理依据：[ONNX Runtime Web](https://onnxruntime.ai/docs/get-started/with-javascript/web.html)。
+训练与导出依据：[Ultralytics 导出文档](https://docs.ultralytics.com/modes/export/)、[检测数据集格式](https://docs.ultralytics.com/datasets/detect/)。补边处理依据：[Ultralytics LetterBox](https://docs.ultralytics.com/reference/data/augment/#ultralytics.data.augment.LetterBox)。推理依据：[ONNX Runtime Web](https://onnxruntime.ai/docs/get-started/with-javascript/web.html)。
 
 ## 结构
 
@@ -138,6 +168,7 @@ src/components/CubeScene.vue       Three.js 魔方、分层动画、视角控制
 src/components/FaceGrid.vue        色块网格
 src/lib/cube.ts                    配色、合法性校验、魔方坐标
 src/lib/vision.ts                  颜色采样、YOLO 输出解析与九宫格映射
+src/lib/localization.ts            补边坐标还原、目标选择、视口投影、位置检查
 src/lib/yolo.ts                    ONNX 会话和图像预处理
 src/workers/solver.worker.ts       后台求解与结果校验
 scripts/train_yolo.py              Ultralytics 训练和导出
@@ -145,6 +176,6 @@ scripts/export_yolo.py             已训练权重导出与结构检查
 tests/                            单元与浏览器测试
 ```
 
-`tests/fixtures/constant-white-test.onnx` 是仅供自动化测试的恒定输出小模型，用于验证浏览器 ONNX 加载/推理链路，**不具有识别能力**，不可用于实际识别。
+`tests/fixtures/constant-white-test.onnx` 是恒定色块输出测试模型；`input-driven-cube-test.onnx` 让测试视频的亮度控制输出坐标和置信度，以验证移动、丢失、重新出现和窗口缩放。它们都**不具有真实识别能力**，不可用作实际魔方模型。后者可用 `python3 tests/fixtures/generate_locator.py` 重新生成。
 
 求解库来自 [cubejs](https://github.com/ldez/cubejs)（MIT）；其旧版、未使用的 npm 工具依赖通过 package overrides 更新。Ultralytics 的许可说明见[原仓库](https://github.com/ultralytics/ultralytics)。

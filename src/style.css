@@ -594,6 +594,77 @@ h2 {
   border-radius: 5px;
   pointer-events: none;
 }
+.auto-position video {
+  object-fit: contain;
+}
+.camera-viewport.active:after {
+  display: none;
+}
+.active .camera-topline > span,
+.active .camera-bottomline > span {
+  background: #222b37b0;
+  color: #d6dde6;
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.tracked-cube {
+  position: absolute;
+  border: 2px solid #f7ba93;
+  border-radius: 5px;
+  pointer-events: none;
+}
+.tracked-cube.ready {
+  border-color: #79ddb2;
+}
+.tracked-label {
+  position: absolute;
+  top: -23px;
+  left: -2px;
+  white-space: nowrap;
+  border-radius: 4px 4px 0 0;
+  background: #25372fe6;
+  padding: 4px 7px;
+  color: #a5f2d0;
+  font-size: 10px;
+}
+.tracking-status {
+  position: absolute;
+  bottom: 43px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 20px);
+  white-space: nowrap;
+  background: #222b37d9;
+  color: #edc4ae;
+  padding: 6px 9px;
+  border-radius: 5px;
+  font-size: 10px;
+  pointer-events: none;
+}
+.tracking-status.found {
+  color: #95e5c0;
+}
+.model-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.model-remove {
+  width: 21px;
+  height: 23px;
+}
+.model-line > span {
+  flex: 1;
+}
+.locator-line {
+  padding-bottom: 12px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--line);
+}
 .camera-icon {
   background: #242c36b0;
   color: #d7dce5;

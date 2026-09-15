@@ -819,19 +819,19 @@ onBeforeUnmount(() => {
           B。按照取景框下方的中心色和朝上色提示，整体转动魔方，再采集当前面。摄像头没有镜像处理。
         </p>
         <p>
-          让一整面与九宫格对齐，保持正视、光线均匀。颜色稳定后点击「采集此面」。也可点击「手动录入」填写；草稿会自动保存在当前浏览器。
+          加载定位模型后，将魔方放在画面任意位置，检测框会自动跟随，无需对齐固定取景框。保持一个面正对镜头、光线均匀，位置和颜色稳定后点击「采集此面」。目标丢失时自动暂停采集。未加载定位模型时，使用固定九宫格采集。
         </p>
       </div>
       <div class="help-section">
         <h3><SlidersHorizontal :size="17" />2. 使用 Ultralytics YOLO</h3>
         <p>
-          点击「加载 YOLO」，选择训练好的六类色块 ONNX 检测模型。类别 ID 顺序必须是
-          white、red、green、yellow、orange、blue。支持 YOLOv8 / YOLO11
-          原始检测输出及六列检测结果；输入为静态正方形 RGB 图像。
+          点击「加载定位模型」，选择单类 cube 的 ONNX
+          检测模型。程序先检测全画面中的魔方，再自动裁剪检测区域采色。仅定位不能判断实物转动方向或消除透视，仍需将一面正对镜头。
         </p>
         <p>
-          项目内提供训练、导出脚本。通用 COCO
-          权重不能直接识别魔方颜色；未加载模型时使用九宫格颜色采样。
+          「加载色块模型」可另外启用六色 YOLO 识别，类别顺序为
+          white、red、green、yellow、orange、blue；未加载时使用颜色采样。两个模型均需训练，项目提供对应训练和导出配置。不要使用通用
+          COCO 权重替代魔方专用模型。
         </p>
         <button
           class="btn secondary compact"
@@ -840,7 +840,7 @@ onBeforeUnmount(() => {
             scanner?.openModelPicker();
           "
         >
-          加载 ONNX 模型<ArrowUpRight :size="14" />
+          加载定位模型<ArrowUpRight :size="14" />
         </button>
       </div>
       <div class="help-section">

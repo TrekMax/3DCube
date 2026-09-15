@@ -1,4 +1,5 @@
 import type { Face, Sticker } from './cube';
+import { intersectionOverUnion, type CubeDetection } from './localization';
 
 export interface Detection {
   x: number;
@@ -47,35 +48,39 @@ export function sampleGrid(canvas: HTMLCanvasElement): Sticker[] {
     return classifyColor(medians[0]!, medians[1]!, medians[2]!);
   });
 }
-function iou(a: Detection, b: Detection): number {
-  const intersection =
-    Math.max(0, Math.min(a.x + a.width, b.x + b.width) - Math.max(a.x, b.x)) *
-    Math.max(0, Math.min(a.y + a.height, b.y + b.height) - Math.max(a.y, b.y));
-  return intersection / Math.max(1e-9, a.width * a.height + b.width * b.height - intersection);
+interface YoloBox extends CubeDetection {
+  classId: number;
 }
-/** Input is a square RGB crop, so normalized boxes map directly to the visible grid. */
-export function decodeDetections(
+/** Decode raw YOLOv8/11 or post-NMS predictions, normalized to the model input. */
+function decodeYolo(
   data: ArrayLike<number>,
   dims: readonly number[],
   size: number,
-  threshold = 0.45,
-): Detection[] {
+  threshold: number,
+  classes: number,
+): YoloBox[] {
   if (dims.length !== 3 || dims[0] !== 1)
-    throw new Error('模型输出必须为 [1,10,N]、[1,N,10] 或 [1,N,6]。');
-  const raw = dims[1] === 10 || dims[2] === 10;
+    throw new Error('模型输出必须是 batch=1 的三维检测张量。');
+  const channels = classes + 4;
+  const raw = dims[1] === channels || dims[2] === channels;
   const processed = !raw && dims[2] === 6;
   if (!raw && !processed)
-    throw new Error('需要六种魔方色块的 YOLO 检测模型，当前模型类别或输出格式不匹配。');
-  const transposed = raw && dims[1] === 10;
+    throw new Error(
+      classes === 1
+        ? '定位需要单类 cube 检测模型，请检查模型用途。'
+        : '需要六种魔方色块的 YOLO 检测模型，当前模型类别或输出格式不匹配。',
+    );
+  const transposed = raw && dims[1] === channels;
   const count = transposed ? dims[2]! : dims[1]!;
-  const stride = processed ? 6 : 10;
+  const stride = processed ? 6 : channels;
+  if (data.length !== count * stride) throw new Error('模型输出数据长度与维度不一致。');
   const at = (i: number, c: number) => data[transposed ? c * count + i : i * stride + c]!;
-  const candidates: Detection[] = [];
+  const candidates: YoloBox[] = [];
   for (let i = 0; i < count; i++) {
     let cls = processed ? at(i, 5) : 0;
-    let score = processed ? at(i, 4) : at(i, 4);
+    let score = at(i, 4);
     if (raw)
-      for (let c = 1; c < 6; c++)
+      for (let c = 1; c < classes; c++)
         if (at(i, c + 4) > score) {
           cls = c;
           score = at(i, c + 4);
@@ -84,7 +89,8 @@ export function decodeDetections(
       !Number.isFinite(score) ||
       score < threshold ||
       !Number.isInteger(cls) ||
-      !MODEL_CLASSES[cls]
+      cls < 0 ||
+      cls >= classes
     )
       continue;
     const x = processed ? at(i, 0) : at(i, 0) - at(i, 2) / 2;
@@ -98,15 +104,35 @@ export function decodeDetections(
       width: width / size,
       height: height / size,
       score,
-      color: MODEL_CLASSES[cls]!,
+      classId: cls,
     });
   }
-  const selected: Detection[] = [];
+  const selected: YoloBox[] = [];
   for (const box of candidates.sort((a, b) => b.score - a.score).slice(0, 300)) {
     // A sticker has only one color: suppress overlapping boxes even across classes.
-    if (!selected.some((existing) => iou(existing, box) > 0.45)) selected.push(box);
+    if (!selected.some((existing) => intersectionOverUnion(existing, box) > 0.45))
+      selected.push(box);
   }
   return selected;
+}
+export function decodeDetections(
+  data: ArrayLike<number>,
+  dims: readonly number[],
+  size: number,
+  threshold = 0.45,
+): Detection[] {
+  return decodeYolo(data, dims, size, threshold, 6).map(({ classId, ...box }) => ({
+    ...box,
+    color: MODEL_CLASSES[classId]!,
+  }));
+}
+export function decodeCubeDetections(
+  data: ArrayLike<number>,
+  dims: readonly number[],
+  size: number,
+  threshold = 0.5,
+): CubeDetection[] {
+  return decodeYolo(data, dims, size, threshold, 1).map(({ classId: _classId, ...box }) => box);
 }
 export function detectionsToGrid(detections: Detection[]): Sticker[] {
   const grid: Sticker[] = Array(9).fill('?'),

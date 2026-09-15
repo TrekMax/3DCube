@@ -1,0 +1,8 @@
+# Use full camera images containing cubes at different positions and distances.
+path: /absolute/path/to/cube-locator
+train: images/train
+val: images/val
+# Draw a tight bounding box around the complete cube, excluding hands/background.
+# During face capture, the user holds a single face toward the camera.
+names:
+  0: cube

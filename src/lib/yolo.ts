@@ -1,7 +1,8 @@
 import * as ort from 'onnxruntime-web/wasm';
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import mjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
-import { decodeDetections, detectionsToGrid } from './vision';
+import { decodeDetections, decodeCubeDetections, detectionsToGrid } from './vision';
+import { letterbox, undoLetterbox, type Rect } from './localization';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.wasmPaths = { wasm: wasmUrl, mjs: mjsUrl };
@@ -10,8 +11,9 @@ export class YoloDetector {
   private constructor(
     private session: ort.InferenceSession,
     readonly size: number,
+    readonly purpose: 'stickers' | 'cube',
   ) {}
-  static async load(file: File): Promise<YoloDetector> {
+  static async load(file: File, purpose: 'stickers' | 'cube' = 'stickers'): Promise<YoloDetector> {
     const session = await ort.InferenceSession.create(await file.arrayBuffer(), {
       executionProviders: ['wasm'],
       graphOptimizationLevel: 'all',
@@ -28,7 +30,7 @@ export class YoloDetector {
         shape[2] !== shape[3]
       )
         throw new Error('请导出 batch=1、dynamic=False 的正方形 NCHW 模型。');
-      const detector = new YoloDetector(session, shape[2]);
+      const detector = new YoloDetector(session, shape[2], purpose);
       // Probe output compatibility before enabling YOLO in the camera panel.
       const input = new ort.Tensor('float32', new Float32Array(3 * detector.size ** 2), [
         1,
@@ -36,13 +38,20 @@ export class YoloDetector {
         detector.size,
         detector.size,
       ]);
-      const results = await session.run({ [session.inputNames[0]!]: input });
       try {
-        const output = results[session.outputNames[0]!]!;
-        decodeDetections(output.data as Float32Array, output.dims, detector.size);
+        const results = await session.run({ [session.inputNames[0]!]: input });
+        try {
+          const output = results[session.outputNames[0]!]!;
+          (purpose === 'cube' ? decodeCubeDetections : decodeDetections)(
+            output.data as Float32Array,
+            output.dims,
+            detector.size,
+          );
+        } finally {
+          Object.values(results).forEach((t) => t.dispose());
+        }
       } finally {
         input.dispose();
-        Object.values(results).forEach((t) => t.dispose());
       }
       return detector;
     } catch (error) {
@@ -51,10 +60,32 @@ export class YoloDetector {
     }
   }
   async detect(canvas: HTMLCanvasElement) {
+    if (this.purpose !== 'stickers') throw new Error('请加载六类色块模型用于颜色检测。');
+    const detections = await this.infer(canvas, decodeDetections);
+    return { detections, colors: detectionsToGrid(detections) };
+  }
+  async locate(canvas: HTMLCanvasElement) {
+    if (this.purpose !== 'cube') throw new Error('请加载单类 cube 模型用于定位。');
+    return this.infer(canvas, decodeCubeDetections);
+  }
+  private async infer<T extends Rect>(
+    canvas: HTMLCanvasElement,
+    decode: (data: ArrayLike<number>, dims: readonly number[], size: number) => T[],
+  ): Promise<T[]> {
+    const transform = letterbox(canvas.width, canvas.height, this.size);
     const resized = document.createElement('canvas');
     resized.width = resized.height = this.size;
     const ctx = resized.getContext('2d', { willReadFrequently: true })!;
-    ctx.drawImage(canvas, 0, 0, this.size, this.size);
+    // Preserve camera aspect ratio, matching Ultralytics' centered LetterBox preprocessing.
+    ctx.fillStyle = 'rgb(114,114,114)';
+    ctx.fillRect(0, 0, this.size, this.size);
+    ctx.drawImage(
+      canvas,
+      transform.left,
+      transform.top,
+      transform.resizedWidth,
+      transform.resizedHeight,
+    );
     const pixels = ctx.getImageData(0, 0, this.size, this.size).data;
     const area = this.size ** 2,
       data = new Float32Array(area * 3);
@@ -68,8 +99,9 @@ export class YoloDetector {
       const result = await this.session.run({ [this.session.inputNames[0]!]: tensor });
       try {
         const output = result[this.session.outputNames[0]!]!;
-        const detections = decodeDetections(output.data as Float32Array, output.dims, this.size);
-        return { detections, colors: detectionsToGrid(detections) };
+        return decode(output.data as Float32Array, output.dims, this.size).map((box) =>
+          undoLetterbox(box, transform),
+        );
       } finally {
         Object.values(result).forEach((t) => t.dispose());
       }
