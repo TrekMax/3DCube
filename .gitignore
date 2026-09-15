@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.local
+test-results/
+playwright-report/
+models/*.onnx
+models/*.pt
+__pycache__/
+.venv/
+*.tsbuildinfo
+runs/

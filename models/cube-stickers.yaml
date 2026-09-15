@@ -1,0 +1,12 @@
+# Set path to the absolute root of your labeled dataset.
+path: /absolute/path/to/cube-stickers
+train: images/train
+val: images/val
+# Class IDs MUST match src/lib/vision.ts MODEL_CLASSES.
+names:
+  0: white
+  1: red
+  2: green
+  3: yellow
+  4: orange
+  5: blue
