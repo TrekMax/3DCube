@@ -77,6 +77,6 @@ test('mobile layout and editor fit the viewport', async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   await page.screenshot({ path: 'test-results/mobile.png', fullPage: true });
   await page.getByRole('button', { name: '手动录入颜色' }).click();
-  await expect(page.getByRole('button', { name: '保存此面' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '保存草稿' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 });

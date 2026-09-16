@@ -92,6 +92,12 @@ export function faceletPosition(face: Face, i: number): [number, number, number]
     B: [1 - c, 1 - r, -1],
   }[face] as [number, number, number];
 }
+export function captureView(face: Face) {
+  return {
+    position: faceletPosition(face, 4).map((v) => v * 9) as [number, number, number],
+    up: faceletPosition(TOP[face], 4),
+  };
+}
 export function moveRotation(move: string): {
   axis: 'x' | 'y' | 'z';
   layer: number;

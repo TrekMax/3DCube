@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeAll } from 'vitest';
 import Cube from 'cubejs';
-import { Vector3 } from 'three';
+import { Vector3, PerspectiveCamera } from 'three';
 import {
   FACES,
   SOLVED,
@@ -10,7 +10,29 @@ import {
   inverseMove,
   faceletPosition,
   moveRotation,
+  captureView,
 } from '../src/lib/cube';
+
+describe('3D capture matches the row order in the face editor', () => {
+  for (const face of FACES)
+    it(`${face}: left-to-right and top-to-bottom, including the back and bottom`, () => {
+      const camera = new PerspectiveCamera(35, 1, 0.1, 100);
+      const pose = captureView(face);
+      camera.position.set(...pose.position);
+      camera.up.set(...pose.up);
+      camera.lookAt(0, 0, 0);
+      camera.updateMatrixWorld();
+      const screen = Array.from({ length: 9 }, (_, i) =>
+        new Vector3(...faceletPosition(face, i)).project(camera),
+      );
+      expect(screen[4].x).toBeCloseTo(0);
+      expect(screen[4].y).toBeCloseTo(0);
+      for (let i = 0; i < 9; i++) {
+        if (i % 3 < 2) expect(screen[i].x).toBeLessThan(screen[i + 1].x);
+        if (i < 6) expect(screen[i].y).toBeGreaterThan(screen[i + 3].y);
+      }
+    });
+});
 
 describe('physical cube validation', () => {
   it('accepts solved and scrambled states', () => {

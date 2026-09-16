@@ -9,7 +9,6 @@ import {
   ChevronRight,
   CircleHelp,
   ScanLine,
-  Layers3,
   WandSparkles,
   RotateCcw,
   RotateCw,
@@ -31,6 +30,7 @@ import {
   Palette,
 } from '@lucide/vue';
 import CubeScene from './components/CubeScene.vue';
+import CubeCapture from './components/CubeCapture.vue';
 import CameraScanner from './components/CameraScanner.vue';
 import FaceGrid from './components/FaceGrid.vue';
 import ColorSettings from './components/ColorSettings.vue';
@@ -80,6 +80,8 @@ const faces = ref(saved.faces),
   selected = ref<Face>('U'),
   model = ref('');
 const completeFaces = computed(() => FACES.filter((f) => !faces.value[f].includes('?')));
+const incompleteFaces = computed(() => FACES.filter((f) => faces.value[f].includes('?')));
+const missingCount = (face: Face) => faces.value[face].filter((c) => c === '?').length;
 const filled = computed(() =>
   FACES.reduce((sum, f) => sum + faces.value[f].filter((c) => c !== '?').length, 0),
 );
@@ -90,6 +92,10 @@ const help = ref(false),
   editor = ref(false),
   draft = ref<Sticker[]>([]),
   paint = ref<Sticker>('U');
+const editorCell = ref<number>();
+const draftMissing = computed(() =>
+  draft.value.flatMap((color, i) => (color === '?' ? [i + 1] : [])),
+);
 const errors = ref<string[]>([]),
   notice = ref(''),
   solving = ref(false),
@@ -114,7 +120,13 @@ watch(
       modalTrigger = document.activeElement as HTMLElement;
       document.body.style.overflow = 'hidden';
       await nextTick();
-      document.querySelector<HTMLElement>('[role="dialog"] button')?.focus();
+      const target =
+        editor.value && editorCell.value !== undefined
+          ? document.querySelectorAll<HTMLButtonElement>('.editor-modal .face-grid button')[
+              editorCell.value
+            ]
+          : document.querySelector<HTMLElement>('[role="dialog"] button');
+      target?.focus();
     } else {
       document.body.style.overflow = '';
       modalTrigger?.focus();
@@ -127,9 +139,7 @@ const locked = computed(() => moving.value || solving.value);
 const currentState = computed(() =>
   solution.value !== null
     ? applyMoves(initial.value, steps.value.slice(0, current.value).join(' '))
-    : hasInput.value
-      ? serialize(faces.value)
-      : SOLVED,
+    : serialize(faces.value),
 );
 const nextMove = computed(() => steps.value[current.value] || '');
 const stage = computed(() =>
@@ -194,17 +204,19 @@ function invalidate() {
   current.value = 0;
   errors.value = [];
 }
-function selectFace(face: Face) {
+function selectFace(face: Face, focus = true) {
   if (!locked.value) {
     pause();
     selected.value = face;
+    if (focus && solution.value === null) scene.value?.focusFace(face);
   }
 }
-function openEditor() {
+function openEditor(index?: number) {
   if (locked.value) return;
   pause();
   draft.value = [...faces.value[selected.value]];
   paint.value = selected.value;
+  editorCell.value = index;
   editor.value = true;
 }
 function recordFace(colors: Sticker[]) {
@@ -222,16 +234,29 @@ function recordFace(colors: Sticker[]) {
   invalidate();
   faces.value[selected.value] = [...colors];
   source.value = 'scan';
+  persistWorkspace();
+  const missing = missingCount(selected.value);
+  if (missing) {
+    toast(
+      `${FACE_NAMES[selected.value]}草稿已保存，还缺 ${missing} 格；补齐 9 格后才会计为已采集。`,
+    );
+    return;
+  }
   const remaining = FACES.find((f) => faces.value[f].includes('?'));
   toast(
     `${NAMES.value[selected.value]}色中心面已录入${remaining ? '' : '，六面已就绪，可以生成复原步骤。'}`,
   );
-  if (remaining) selected.value = remaining;
+  if (remaining) selectFace(remaining);
 }
 function saveEditor() {
+  if (locked.value) return;
   invalidate();
   recordFace(draft.value);
   editor.value = false;
+}
+function fillMissing() {
+  if (paint.value === '?') return;
+  draft.value = draft.value.map((color) => (color === '?' ? paint.value : color));
 }
 function rotateDraft() {
   const previous = [...draft.value];
@@ -491,7 +516,7 @@ onBeforeUnmount(() => {
         />
         <div class="manual-row">
           <span>{{ solution !== null ? '采集指定面可核对当前步骤' : '识别不准？你也可以' }}</span
-          ><button class="text-btn" :disabled="locked" @click="openEditor">
+          ><button class="text-btn" :disabled="locked" @click="openEditor()">
             <Pencil :size="13" />手动{{ hasInput ? '校正' : '录入' }}颜色<ChevronRight :size="13" />
           </button>
         </div>
@@ -500,7 +525,7 @@ onBeforeUnmount(() => {
         <div class="panel-heading">
           <div class="heading-title">
             <span class="icon-tile"><Box :size="18" /></span>
-            <h2>你的 3D 魔方</h2>
+            <h2>{{ solution === null ? '3D 采集与校色' : '你的 3D 魔方' }}</h2>
             <span class="tiny-tag">INTERACTIVE</span>
           </div>
           <button
@@ -522,16 +547,23 @@ onBeforeUnmount(() => {
                     ? '演示魔方'
                     : hasInput
                       ? '已录入的魔方'
-                      : '魔方示意'
+                      : '等待采集 · ? 为未录入'
               }}</span
             ><span class="mono">3 × 3 × 3</span>
           </div>
-          <CubeScene ref="scene" :state="currentState" :next-move="nextMove" />
+          <CubeScene
+            ref="scene"
+            :state="currentState"
+            :next-move="nextMove"
+            :selected-face="solution === null ? selected : undefined"
+            :selectable="solution === null && !locked && !editor && !help && !colorSettings"
+            @select-face="selectFace($event, false)"
+          />
           <div v-if="solving" class="solver-overlay">
             <LoaderCircle class="spin" :size="28" /><strong>{{ solveStatus }}</strong
             ><span>计算在后台进行，首次准备可能需要数秒。</span>
           </div>
-          <div class="orientation-label">
+          <div v-if="solution !== null" class="orientation-label">
             <span class="axis-y">U</span><span class="axis-z">F</span><span class="axis-x">R</span
             ><svg width="50" height="50" viewBox="0 0 50 50">
               <path
@@ -542,24 +574,21 @@ onBeforeUnmount(() => {
               />
             </svg>
           </div>
-          <div class="drag-hint"><MousePointer2 :size="13" />拖动旋转 · 滚轮缩放</div>
-        </div>
-        <div v-if="solution === null" class="viewer-footer">
-          <span class="footer-icon"><Layers3 :size="20" /></span>
-          <div>
-            <strong>{{
-              completeFaces.length === 6 ? '六面已就绪，准备复原' : '真实魔方，数字映射'
-            }}</strong>
-            <p>
-              {{
-                completeFaces.length === 6
-                  ? '确认颜色后，生成你的专属复原步骤。'
-                  : '录入的每一个色块，都会同步到这里。'
-              }}
-            </p>
+          <div class="drag-hint">
+            <MousePointer2 :size="13" />{{
+              solution === null ? '拖动查看六面 · 点击选面 · 滚轮缩放' : '拖动旋转 · 滚轮缩放'
+            }}
           </div>
-          <span class="scan-count">{{ completeFaces.length }}<small>/ 6 面</small></span>
         </div>
+        <CubeCapture
+          v-if="solution === null"
+          :faces="faces"
+          :selected="selected"
+          :disabled="locked"
+          @select="selectFace"
+          @focus="scene?.focusFace(selected)"
+          @edit="openEditor"
+        />
         <div v-else class="solution-footer">
           <div class="move-instruction">
             <span class="current-move" :class="{ success: done }"
@@ -643,7 +672,7 @@ onBeforeUnmount(() => {
           <h2>
             六面采集<span>{{ completeFaces.length }} / 6</span>
           </h2>
-          <p>按中心颜色选择面，点击「手动录入」可填写或校正色块。</p>
+          <p>在 3D 魔方或下方缩略图中选面，再用摄像头采集或手动补齐。</p>
         </div>
         <div class="face-actions">
           <button class="text-btn" :disabled="locked" @click="openColorSettings">
@@ -676,7 +705,7 @@ onBeforeUnmount(() => {
             class="face-card-bottom"
             ><span>{{ NAMES[face] }}色中心</span
             ><span>{{
-              completeFaces.includes(face) ? '已采集' : selected === face ? '待扫描' : '未采集'
+              completeFaces.includes(face) ? '已采集' : `还缺 ${missingCount(face)} 格`
             }}</span></span
           >
         </button>
@@ -695,7 +724,9 @@ onBeforeUnmount(() => {
               ? `保持${NAMES.U}色朝上、${NAMES.F}色朝前，按步骤转动`
               : completeFaces.length === 6
                 ? '六面采集完成，可以检查并求解'
-                : `还需采集 ${6 - completeFaces.length} 个面`
+                : incompleteFaces.length === 1
+                  ? `${FACE_NAMES[incompleteFaces[0]!]}还缺 ${missingCount(incompleteFaces[0]!)} 格，补齐后完成六面采集`
+                  : `还需采集 ${incompleteFaces.length} 个面`
           }}</span>
         </div>
         <button
@@ -820,6 +851,13 @@ onBeforeUnmount(() => {
         :center-label="selected"
         @paint="(i) => (draft[i] = paint)"
       />
+      <p class="editor-completeness" :class="{ incomplete: draftMissing.length }" role="status">
+        {{
+          draftMissing.length
+            ? `还缺 ${draftMissing.length} 格：第 ${draftMissing.join('、')} 格。选颜色后，点击上方对应格子填色。`
+            : '9 格已填完整，保存后计为已采集。'
+        }}
+      </p>
       <div class="palette">
         <button
           v-for="f in FACES"
@@ -841,9 +879,23 @@ onBeforeUnmount(() => {
           填满{{ NAMES[selected] }}色
         </button>
       </div>
+      <button
+        v-if="draftMissing.length"
+        class="btn secondary full fill-missing"
+        :disabled="paint === '?'"
+        @click="fillMissing"
+      >
+        {{
+          paint === '?'
+            ? '请选择颜色以补齐空格'
+            : `用${NAMES[paint]}色补齐 ${draftMissing.length} 个空格`
+        }}
+      </button>
       <div class="modal-footer">
         <button class="btn secondary" @click="editor = false">取消</button
-        ><button class="btn primary" @click="saveEditor"><Check :size="15" />保存此面</button>
+        ><button class="btn primary" @click="saveEditor">
+          <Check :size="15" />{{ draftMissing.length ? '保存草稿' : '保存此面' }}
+        </button>
       </div>
     </section>
   </div>
@@ -868,6 +920,12 @@ onBeforeUnmount(() => {
         </p>
         <p>
           加载定位模型后，将魔方放在画面任意位置，检测框会自动跟随，无需对齐固定取景框。保持一个面正对镜头、光线均匀，位置和颜色稳定后点击「采集此面」。目标丢失时自动暂停采集。未加载定位模型时，使用固定九宫格采集。
+        </p>
+        <p>
+          3D 采集：拖动魔方查看六面，点击色块选择所在面；下方 U/R/F/D/L/B
+          按钮可直接正对该面。按中心色及朝上色摆放实物，摄像头采集后会同步更新
+          3D，并切换到未完成的面。点击「补齐此面」可逐格填色；带 ?
+          的格子尚未录入，保存草稿后仍需补齐。
         </p>
       </div>
       <div class="help-section">

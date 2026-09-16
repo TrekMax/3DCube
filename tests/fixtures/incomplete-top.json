@@ -1,0 +1,18 @@
+{
+  "version": 2,
+  "palette": {
+    "version": 1,
+    "colors": {
+      "U": "#ebe5e5",
+      "R": "#0054db",
+      "F": "#ff1100",
+      "D": "#003399",
+      "L": "#22cc00",
+      "B": "#3fd7fd"
+    },
+    "names": { "U": "白", "R": "浅蓝", "F": "红", "D": "深蓝", "L": "绿", "B": "透明蓝" },
+    "yoloFaces": ["U", "R", "F", "D", "L", "B"]
+  },
+  "faceOrder": "URFDLB",
+  "facelets": "L?L?U????RRBRRBRRBFFFFFFFFFDDDDDDDRUBLLLLLBLLDBUDBBRBR"
+}

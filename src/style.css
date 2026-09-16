@@ -1107,7 +1107,149 @@ h2 {
 }
 .unknown {
   font-size: 24px;
-  opacity: 0.45;
+  color: #68768b;
+}
+.small .unknown {
+  font-size: 11px;
+}
+.face-grid.editable .missing-sticker {
+  outline: 1px dashed #8492a6;
+  outline-offset: -3px;
+}
+.cube-capture {
+  border-top: 1px solid var(--line);
+  padding: 17px 20px;
+}
+.capture-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.capture-heading strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.capture-heading > span {
+  font-size: 10px;
+  color: #8c97a7;
+}
+.capture-face-tabs {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 5px;
+}
+.capture-face-tabs button {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #e6eaf0;
+  border-radius: 6px;
+  padding: 8px 4px;
+  background: #fafbfc;
+  color: #718096;
+  font-size: 11px;
+}
+.capture-face-tabs button[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: #fff5ee;
+  color: #b55d3c;
+}
+.capture-face-tabs i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px #00000015;
+}
+.capture-face-tabs small {
+  font-size: 8px;
+  color: #7c8898;
+}
+.capture-face-tabs svg {
+  color: var(--green);
+}
+.capture-selected {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 16px;
+}
+.cube-capture .face-grid {
+  flex-shrink: 0;
+  width: 76px;
+  margin: 0;
+}
+.capture-face-info {
+  min-width: 0;
+  flex: 1;
+}
+.capture-face-info strong {
+  font-size: 12px;
+  font-weight: 550;
+}
+.capture-face-info p {
+  font-size: 11px;
+  color: #7d8b9e;
+  margin: 6px 0;
+}
+.capture-face-info > span {
+  font-size: 10px;
+  line-height: 1.6;
+  color: #56937a;
+  display: block;
+}
+.capture-face-info > .incomplete {
+  color: #b57150;
+}
+.capture-face-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+}
+.capture-face-actions button {
+  font-size: 11px;
+}
+.capture-orientation-note {
+  font-size: 10px;
+  line-height: 1.8;
+  color: #929cab;
+  margin-top: 13px;
+}
+.editor-completeness {
+  font-size: 11px;
+  line-height: 1.8;
+  margin-top: 16px;
+  padding: 10px 12px;
+  color: #508971;
+  background: #f0f8f3;
+  border-radius: 6px;
+}
+.editor-completeness.incomplete {
+  color: #a96743;
+  background: #fff4eb;
+}
+.fill-missing {
+  margin-top: 16px;
+  font-size: 11px;
+}
+@media (max-width: 1100px) {
+  .cube-capture {
+    padding: 15px;
+  }
+  .capture-selected {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .capture-face-actions {
+    width: 100%;
+    flex-direction: row;
+    justify-content: flex-end;
+    padding-top: 3px;
+  }
 }
 .face-grid.small {
   width: 75px;

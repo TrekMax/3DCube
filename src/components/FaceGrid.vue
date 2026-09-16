@@ -13,12 +13,13 @@ defineEmits<{ paint: [index: number] }>();
       :key="i"
       :type="editable ? 'button' : undefined"
       :disabled="editable && i === 4"
+      :class="{ 'missing-sticker': color === '?' }"
       :aria-label="`第 ${i + 1} 格：${color === '?' ? '未录入' : NAMES[color] + '色'}${i === 4 ? '，中心固定' : ''}`"
       :style="{ background: COLORS[color] }"
       @click="editable && $emit('paint', i)"
     >
       <span v-if="i === 4 && centerLabel" class="center-letter">{{ centerLabel }}</span
-      ><span v-else-if="color === '?' && !small" class="unknown">·</span>
+      ><span v-else-if="color === '?'" class="unknown">?</span>
     </component>
   </div>
 </template>
