@@ -54,6 +54,14 @@ python3 -m unittest discover -s tests -p 'test_*.py' # 模型类别校验，无�
 
 3D 在这里用于选面与朝向指导；摄像头仍逐面采集，需要让一个面正对镜头。目前不自动估计实物的三维姿态，也不从一次拍摄推断背面或连续转动中的全部颜色。
 
+### 颜色齐全但提示棱块方向或位置奇偶性不合法
+
+六色各 9 格并不保证状态可复原。程序保留角块、棱块方向及位置约束检查，与 [Kociemba 的合法性检查](https://github.com/hkociemba/RubiksCube-TwophaseSolver/blob/master/cubie.py) 一致。
+
+报错下方会显示「具体核对位置」：棱块朝向总和异常时，列出当前数据中的反向棱块及对应的两个色块，点击即可进入相应面的校色窗口并高亮目标格。位置按每面从左上到右下的 1–9 编号，查看时保持页面提示的相邻中心色朝上。
+
+这些位置是核对线索，不能单凭它们断定实物被拆装或唯一确定错误颜色。位置奇偶性是整个魔方的约束，无法据此指定某格必然有错。请按实物核对颜色与每面的朝向，确保六面采集期间没有转动单层；程序不会自动改色来凑出可求解状态。
+
 ## 配色与扫描方向
 
 在 **「六面采集 → 自定义配色」** 中设置六个面的颜色名称与 HEX 色值，也可使用颜色选择器。按照实物中心色的位置填写；相对面固定为 **U/D、R/L、F/B**。颜色配置与录入草稿一起保存在当前浏览器，重新打开会恢复，也可恢复默认配色。
@@ -190,6 +198,7 @@ src/App.vue                       工作台、录入、校正、步骤播放
 src/components/CameraScanner.vue   摄像头与扫描循环
 src/components/CubeScene.vue       Three.js 魔方、分层动画、视角控制
 src/components/CubeCapture.vue     3D 采集选面、方向提示、单面进度与校色入口
+src/components/CubeDiagnostics.vue 合法性报错的棱块位置核对入口
 src/components/FaceGrid.vue        色块网格
 src/components/ColorSettings.vue   六面配色与 YOLO 类别映射设置
 src/lib/cube.ts                    默认配色、合法性校验、魔方坐标

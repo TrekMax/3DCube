@@ -31,6 +31,7 @@ import {
 } from '@lucide/vue';
 import CubeScene from './components/CubeScene.vue';
 import CubeCapture from './components/CubeCapture.vue';
+import CubeDiagnostics from './components/CubeDiagnostics.vue';
 import CameraScanner from './components/CameraScanner.vue';
 import FaceGrid from './components/FaceGrid.vue';
 import ColorSettings from './components/ColorSettings.vue';
@@ -57,6 +58,7 @@ import {
   applyMoves,
   inverseMove,
   validateCube,
+  analyzeCube,
   moveDescription,
   type Face,
   type Sticker,
@@ -156,6 +158,16 @@ const countColors = computed(
       ]),
     ) as Record<Face, number>,
 );
+const diagnosticPieces = computed(() => {
+  if (!errors.value.length) return undefined;
+  const analysis = analyzeCube(serialize(faces.value), NAMES.value);
+  return analysis.errors.length ? analysis.pieces : undefined;
+});
+function reviewSticker(face: Face, index: number) {
+  if (locked.value) return;
+  selectFace(face);
+  openEditor(index);
+}
 function persistWorkspace() {
   try {
     localStorage.setItem(
@@ -751,6 +763,11 @@ onBeforeUnmount(() => {
             ><i :style="{ background: COLORS[f] }" />{{ NAMES[f] }} {{ countColors[f] }}/9</span
           >
         </div>
+        <CubeDiagnostics
+          v-if="diagnosticPieces"
+          :pieces="diagnosticPieces"
+          @review="reviewSticker"
+        />
       </div>
     </section>
 
@@ -848,9 +865,13 @@ onBeforeUnmount(() => {
       <FaceGrid
         :colors="draft"
         editable
+        :highlighted="editorCell"
         :center-label="selected"
         @paint="(i) => (draft[i] = paint)"
       />
+      <p v-if="editorCell !== undefined" class="editor-review-note">
+        正在核对第 {{ editorCell + 1 }} 格（橙框）。请以实物颜色为准。
+      </p>
       <p class="editor-completeness" :class="{ incomplete: draftMissing.length }" role="status">
         {{
           draftMissing.length

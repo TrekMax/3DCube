@@ -11,7 +11,57 @@ import {
   faceletPosition,
   moveRotation,
   captureView,
+  analyzeCube,
 } from '../src/lib/cube';
+import reported from './fixtures/incomplete-top.json' with { type: 'json' };
+
+describe('actionable cube diagnostics', () => {
+  it('identifies the recorded DB edge and both independent failures in the reported scan', () => {
+    const result = analyzeCube(reported.facelets.replaceAll('?', 'U'));
+    expect(result.errors.join()).toMatch(/棱块方向/);
+    expect(result.errors.join()).toMatch(/奇偶/);
+    expect(result.pieces).toEqual({
+      edgeFlipCount: 1,
+      cornerParity: 0,
+      edgeParity: 1,
+      flippedEdges: [
+        {
+          position: 'DB',
+          stickers: [
+            { face: 'D', index: 7, color: 'R' },
+            { face: 'B', index: 7, color: 'B' },
+          ],
+        },
+      ],
+    });
+  });
+  it('maps a flipped UF edge to the two adjoining facelets', () => {
+    const state = [...SOLVED];
+    [state[7], state[19]] = [state[19], state[7]];
+    expect(analyzeCube(state.join('')).pieces?.flippedEdges).toEqual([
+      {
+        position: 'UF',
+        stickers: [
+          { face: 'U', index: 7, color: 'F' },
+          { face: 'F', index: 1, color: 'U' },
+        ],
+      },
+    ]);
+  });
+  it('does not attribute a parity error to flipped edges when none are recorded', () => {
+    const state = [...SOLVED];
+    [state[10], state[19]] = [state[19], state[10]];
+    const result = analyzeCube(state.join(''));
+    expect(result.errors.join()).toMatch(/奇偶/);
+    expect(result.pieces?.flippedEdges).toEqual([]);
+  });
+  it('does not produce piece-specific clues for incomplete or malformed cubies', () => {
+    expect(analyzeCube(reported.facelets).pieces).toBeUndefined();
+    const invalid = [...SOLVED];
+    [invalid[0], invalid[20]] = [invalid[20], invalid[0]];
+    expect(analyzeCube(invalid.join('')).pieces).toBeUndefined();
+  });
+});
 
 describe('3D capture matches the row order in the face editor', () => {
   for (const face of FACES)

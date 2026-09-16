@@ -2,7 +2,13 @@
 import type { Sticker } from '../lib/cube';
 import { usePalette } from '../lib/usePalette';
 const { colors: COLORS, names: NAMES } = usePalette();
-defineProps<{ colors: Sticker[]; editable?: boolean; small?: boolean; centerLabel?: string }>();
+defineProps<{
+  colors: Sticker[];
+  editable?: boolean;
+  small?: boolean;
+  centerLabel?: string;
+  highlighted?: number;
+}>();
 defineEmits<{ paint: [index: number] }>();
 </script>
 <template>
@@ -13,7 +19,7 @@ defineEmits<{ paint: [index: number] }>();
       :key="i"
       :type="editable ? 'button' : undefined"
       :disabled="editable && i === 4"
-      :class="{ 'missing-sticker': color === '?' }"
+      :class="{ 'missing-sticker': color === '?', 'review-sticker': highlighted === i }"
       :aria-label="`第 ${i + 1} 格：${color === '?' ? '未录入' : NAMES[color] + '色'}${i === 4 ? '，中心固定' : ''}`"
       :style="{ background: COLORS[color] }"
       @click="editable && $emit('paint', i)"

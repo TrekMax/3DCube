@@ -1100,6 +1100,65 @@ h2 {
   opacity: 1;
   cursor: default;
 }
+.face-grid.editable button.review-sticker {
+  outline: 3px solid var(--accent);
+  outline-offset: 1px;
+}
+.editor-review-note {
+  margin-top: 12px;
+  color: #b46b49;
+  font-size: 11px;
+  line-height: 1.8;
+  text-align: center;
+}
+.cube-diagnostics {
+  border-top: 1px solid #edcdbf;
+  margin-top: 15px;
+  padding-top: 12px;
+}
+.cube-diagnostics p {
+  margin: 8px 0;
+  font-size: 11px;
+  line-height: 1.9;
+}
+.cube-diagnostics h3 {
+  font-size: 12px;
+  margin: 16px 0 6px;
+}
+.edge-review-list {
+  display: grid;
+  gap: 10px;
+  margin: 12px 0;
+}
+.edge-review-list article {
+  padding: 12px;
+  border: 1px solid #efd7ca;
+  border-radius: 8px;
+  background: #fffaf6;
+}
+.edge-review-list strong {
+  font-size: 11px;
+}
+.edge-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 10px;
+}
+.edge-review-actions .btn {
+  font-size: 11px;
+  white-space: normal;
+  height: auto;
+  min-height: 34px;
+  padding: 7px 10px;
+}
+.edge-review-actions i {
+  flex-shrink: 0;
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  border: 1px solid #00000018;
+}
 .center-letter {
   font-size: 15px;
   font-weight: 600;

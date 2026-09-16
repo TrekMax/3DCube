@@ -131,6 +131,30 @@ test('reported top-face draft persists, missing-only fill preserves known sticke
   ).toBe('LULUUUUUU');
   await page.getByRole('button', { name: '生成复原步骤' }).click();
   await expect(page.getByRole('alert')).toContainText('棱块方向不合法');
+  const diagnostics = page.getByRole('region', { name: '具体核对位置' });
+  await expect(diagnostics).toContainText('底面 / 后面相邻棱块');
+  await expect(diagnostics).toContainText('不能唯一确定');
+  const stored = await page.evaluate(() => localStorage.getItem('cube-guide-workspace-v2'));
+  await page.getByRole('button', { name: '核对底面第 8 格', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('深蓝色中心 · 底面');
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: '第 8 格：浅蓝色', exact: true }),
+  ).toBeFocused();
+  await expect(page.locator('.editor-modal .review-sticker')).toHaveAttribute(
+    'aria-label',
+    '第 8 格：浅蓝色',
+  );
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '核对后面第 8 格', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('透明蓝色中心 · 后面');
+  await expect(
+    page.getByRole('dialog').getByRole('button', { name: '第 8 格：透明蓝色', exact: true }),
+  ).toBeFocused();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  expect(await page.evaluate(() => localStorage.getItem('cube-guide-workspace-v2'))).toBe(stored);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await diagnostics.screenshot({ path: 'test-results/cube-diagnostics-mobile.png' });
 });
 
 test('mobile touch selection and editor fit the viewport', async ({ browser, baseURL }) => {

@@ -49,9 +49,35 @@ const permutation = (values: number[], length: number) =>
   values.length === length &&
   new Set(values).size === length &&
   values.every((v) => Number.isInteger(v) && v >= 0 && v < length);
-export function validateCube(state: string, names: Record<Face, string> = NAMES): string[] {
+export interface CubeAnalysis {
+  errors: string[];
+  pieces?: {
+    edgeFlipCount: number;
+    cornerParity: number;
+    edgeParity: number;
+    flippedEdges: {
+      position: string;
+      stickers: { face: Face; index: number; color: Face }[];
+    }[];
+  };
+}
+// Matches cubejs's edge order; sticker indices are derived from the 3D coordinates.
+const EDGE_POSITIONS = ['UR', 'UF', 'UL', 'UB', 'DR', 'DF', 'DL', 'DB', 'FR', 'FL', 'BL', 'BR'];
+function edgeStickers(position: string, state: string) {
+  const faces = [...position] as Face[];
+  const target = [0, 1, 2].map((axis) =>
+    faces.reduce((sum, face) => sum + faceletPosition(face, 4)[axis]!, 0),
+  );
+  return faces.map((face) => {
+    const index = Array.from({ length: 9 }, (_, i) => i).find((i) =>
+      faceletPosition(face, i).every((coordinate, axis) => coordinate === target[axis]),
+    )!;
+    return { face, index, color: state[FACES.indexOf(face) * 9 + index] as Face };
+  });
+}
+export function analyzeCube(state: string, names: Record<Face, string> = NAMES): CubeAnalysis {
   if (state.length !== 54 || /[^URFDLB]/.test(state))
-    return ['还有未录入的色块，请完成六个面的扫描或手动填色。'];
+    return { errors: ['还有未录入的色块，请完成六个面的扫描或手动填色。'] };
   const errors: string[] = [];
   for (const f of FACES) {
     const count = [...state].filter((c) => c === f).length;
@@ -59,21 +85,42 @@ export function validateCube(state: string, names: Record<Face, string> = NAMES)
   }
   if (FACES.some((f, i) => state[i * 9 + 4] !== f))
     errors.push('中心颜色与面不对应，请按当前配色的 U、R、F、D、L、B 六个面录入。');
-  if (errors.length) return errors;
+  if (errors.length) return { errors };
   try {
     const cube = Cube.fromString(state);
     if (!permutation(cube.cp, 8) || !permutation(cube.ep, 12) || cube.asString() !== state)
-      return ['角块或棱块的颜色组合不合法，请检查误识别的颜色和每面的朝向。'];
+      return { errors: ['角块或棱块的颜色组合不合法，请检查误识别的颜色和每面的朝向。'] };
     if (cube.co.reduce((a, b) => a + b, 0) % 3)
       errors.push('角块方向不合法：请检查是否有角块被扭转，或扫描朝向有误。');
     if (cube.eo.reduce((a, b) => a + b, 0) % 2)
       errors.push('棱块方向不合法：请检查是否有棱块被翻转，或颜色识别有误。');
     if (parity(cube.cp) !== parity(cube.ep))
       errors.push('块位置奇偶性不合法：请检查扫描结果或重新装配过的魔方。');
+    return {
+      errors,
+      pieces: {
+        edgeFlipCount: cube.eo.reduce((sum, orientation) => sum + orientation, 0),
+        cornerParity: parity(cube.cp),
+        edgeParity: parity(cube.ep),
+        flippedEdges: cube.eo.flatMap((orientation, i) =>
+          orientation
+            ? [
+                {
+                  position: EDGE_POSITIONS[i]!,
+                  stickers: edgeStickers(EDGE_POSITIONS[i]!, state),
+                },
+              ]
+            : [],
+        ),
+      },
+    };
   } catch {
     errors.push('无法解析魔方，请重新检查色块。');
   }
-  return errors;
+  return { errors };
+}
+export function validateCube(state: string, names: Record<Face, string> = NAMES): string[] {
+  return analyzeCube(state, names).errors;
 }
 export function moveDescription(move: string, names: Record<Face, string> = NAMES): string {
   if (!move) return `保持${names.U}色在上、${names.F}色在前，准备开始。`;
