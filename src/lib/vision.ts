@@ -1,4 +1,5 @@
-import type { Face, Sticker } from './cube';
+import { FACES, COLORS, type Face, type Sticker } from './cube';
+import { referenceClassifier } from './color';
 import { intersectionOverUnion, type CubeDetection } from './localization';
 
 export interface Detection {
@@ -31,7 +32,12 @@ export function classifyColor(r: number, g: number, b: number): Sticker {
   if (h < 280) return 'B';
   return '?';
 }
-export function sampleGrid(canvas: HTMLCanvasElement): Sticker[] {
+export function createColorClassifier(colors: Record<Face, string>) {
+  return FACES.every((f) => colors[f].toLowerCase() === COLORS[f])
+    ? classifyColor
+    : referenceClassifier(colors);
+}
+export function sampleGrid(canvas: HTMLCanvasElement, classify = classifyColor): Sticker[] {
   const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
   const cell = canvas.width / 3,
     radius = Math.max(2, Math.floor(cell * 0.12));
@@ -45,7 +51,7 @@ export function sampleGrid(canvas: HTMLCanvasElement): Sticker[] {
     const medians = channels.map(
       (values) => values.sort((a, b) => a - b)[Math.floor(values.length / 2)]!,
     );
-    return classifyColor(medians[0]!, medians[1]!, medians[2]!);
+    return classify(medians[0]!, medians[1]!, medians[2]!);
   });
 }
 interface YoloBox extends CubeDetection {
@@ -120,10 +126,17 @@ export function decodeDetections(
   dims: readonly number[],
   size: number,
   threshold = 0.45,
+  classFaces: readonly Face[] = MODEL_CLASSES,
 ): Detection[] {
+  if (
+    classFaces.length !== 6 ||
+    new Set(classFaces).size !== 6 ||
+    !classFaces.every((f) => FACES.includes(f))
+  )
+    throw new Error('YOLO 类别与魔方面的映射不合法。');
   return decodeYolo(data, dims, size, threshold, 6).map(({ classId, ...box }) => ({
     ...box,
-    color: MODEL_CLASSES[classId]!,
+    color: classFaces[classId]!,
   }));
 }
 export function decodeCubeDetections(

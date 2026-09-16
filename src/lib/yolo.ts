@@ -3,6 +3,7 @@ import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import mjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
 import { decodeDetections, decodeCubeDetections, detectionsToGrid } from './vision';
 import { letterbox, undoLetterbox, type Rect } from './localization';
+import { FACES, type Face } from './cube';
 
 ort.env.wasm.numThreads = 1;
 ort.env.wasm.wasmPaths = { wasm: wasmUrl, mjs: mjsUrl };
@@ -59,9 +60,11 @@ export class YoloDetector {
       throw error;
     }
   }
-  async detect(canvas: HTMLCanvasElement) {
+  async detect(canvas: HTMLCanvasElement, classFaces: readonly Face[] = FACES) {
     if (this.purpose !== 'stickers') throw new Error('请加载六类色块模型用于颜色检测。');
-    const detections = await this.infer(canvas, decodeDetections);
+    const detections = await this.infer(canvas, (data, dims, size) =>
+      decodeDetections(data, dims, size, 0.45, classFaces),
+    );
     return { detections, colors: detectionsToGrid(detections) };
   }
   async locate(canvas: HTMLCanvasElement) {

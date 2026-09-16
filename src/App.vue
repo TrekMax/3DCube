@@ -28,14 +28,25 @@ import {
   Download,
   CheckCheck,
   SlidersHorizontal,
+  Palette,
 } from '@lucide/vue';
 import CubeScene from './components/CubeScene.vue';
 import CameraScanner from './components/CameraScanner.vue';
 import FaceGrid from './components/FaceGrid.vue';
+import ColorSettings from './components/ColorSettings.vue';
 import {
-  COLORS,
+  WORKSPACE_KEY,
+  LEGACY_DRAFT_KEY,
+  restoreWorkspace,
+  defaultPalette,
+  normalizePalette,
+  paletteErrors,
+  paletteChangesRecognition,
+  type PaletteConfig,
+} from './lib/palette';
+import { providePalette } from './lib/usePalette';
+import {
   FACES,
-  NAMES,
   FACE_NAMES,
   TOP,
   SOLVED,
@@ -51,27 +62,21 @@ import {
   type Sticker,
 } from './lib/cube';
 
-const STORAGE_KEY = 'cube-guide-draft-v1';
 function restore() {
   try {
-    const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    if (
-      data &&
-      FACES.every(
-        (f) =>
-          Array.isArray(data[f]) &&
-          data[f].length === 9 &&
-          data[f][4] === f &&
-          data[f].every((c: string) => [...FACES, '?'].includes(c)),
-      )
-    )
-      return data as Record<Face, Sticker[]>;
+    return restoreWorkspace(
+      localStorage.getItem(WORKSPACE_KEY),
+      localStorage.getItem(LEGACY_DRAFT_KEY),
+    );
   } catch {
-    /* Browsers may disable local storage. The app still works. */
+    return { version: 2 as const, palette: defaultPalette(), faces: emptyFaces() };
   }
-  return emptyFaces();
 }
-const faces = ref(restore()),
+const saved = restore();
+const palette = ref(saved.palette);
+const { colors: COLORS, names: NAMES } = providePalette(palette);
+const colorSettings = ref(false);
+const faces = ref(saved.faces),
   selected = ref<Face>('U'),
   model = ref('');
 const completeFaces = computed(() => FACES.filter((f) => !faces.value[f].includes('?')));
@@ -103,7 +108,7 @@ let worker: Worker | null = null,
   solveTimer: ReturnType<typeof setTimeout>;
 let modalTrigger: HTMLElement | null = null;
 watch(
-  () => editor.value || help.value,
+  () => editor.value || help.value || colorSettings.value,
   async (open) => {
     if (open) {
       modalTrigger = document.activeElement as HTMLElement;
@@ -141,15 +146,39 @@ const countColors = computed(
       ]),
     ) as Record<Face, number>,
 );
-watch(
-  faces,
-  (value) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-    } catch {}
-  },
-  { deep: true },
-);
+function persistWorkspace() {
+  try {
+    localStorage.setItem(
+      WORKSPACE_KEY,
+      JSON.stringify({ version: 2, palette: palette.value, faces: faces.value }),
+    );
+    localStorage.removeItem(LEGACY_DRAFT_KEY);
+  } catch {
+    /* The active configuration still works when browser storage is unavailable. */
+  }
+}
+watch([faces, palette], persistWorkspace, { deep: true });
+function openColorSettings() {
+  if (locked.value) return;
+  pause();
+  colorSettings.value = true;
+}
+function savePalette(next: PaletteConfig) {
+  if (paletteErrors(next).length) return;
+  const config = normalizePalette(next);
+  const changed = paletteChangesRecognition(palette.value, config);
+  if (changed) {
+    invalidate();
+    faces.value = emptyFaces();
+    selected.value = 'U';
+    source.value = 'scan';
+  }
+  palette.value = config;
+  if (errors.value.length) errors.value = validateCube(serialize(faces.value), NAMES.value);
+  persistWorkspace();
+  colorSettings.value = false;
+  toast(changed ? '自定义配色已应用，请按新的中心色扫描六面。' : '配色设置已保存。');
+}
 function toast(text: string) {
   notice.value = text;
   clearTimeout(noticeTimer);
@@ -195,7 +224,7 @@ function recordFace(colors: Sticker[]) {
   source.value = 'scan';
   const remaining = FACES.find((f) => faces.value[f].includes('?'));
   toast(
-    `${NAMES[selected.value]}色中心面已录入${remaining ? '' : '，六面已就绪，可以生成复原步骤。'}`,
+    `${NAMES.value[selected.value]}色中心面已录入${remaining ? '' : '，六面已就绪，可以生成复原步骤。'}`,
   );
   if (remaining) selected.value = remaining;
 }
@@ -242,7 +271,7 @@ function makeWorker() {
     current.value = 0;
     toast(
       steps.value.length
-        ? `已生成 ${steps.value.length} 步复原方案。请先摆成白色在上、绿色在前。`
+        ? `已生成 ${steps.value.length} 步复原方案。请先摆成${NAMES.value.U}色在上、${NAMES.value.F}色在前。`
         : '这个魔方已经复原了！',
     );
   };
@@ -258,14 +287,14 @@ function solve() {
   if (locked.value) return;
   pause();
   const state = serialize(faces.value);
-  errors.value = validateCube(state);
+  errors.value = validateCube(state, NAMES.value);
   if (errors.value.length) return;
   initial.value = state;
   solving.value = true;
   solveStatus.value = '正在计算复原步骤…';
   requestId++;
   if (!worker) makeWorker();
-  worker!.postMessage({ id: requestId, state });
+  worker!.postMessage({ id: requestId, state, names: { ...NAMES.value } });
   solveTimer = setTimeout(() => {
     requestId++;
     worker?.terminate();
@@ -318,7 +347,8 @@ function seek(index: number) {
 }
 function exportState() {
   const payload = {
-    version: 1,
+    version: 2,
+    palette: palette.value,
     faceOrder: 'URFDLB',
     facelets: serialize(faces.value),
     solution: solution.value,
@@ -338,8 +368,9 @@ function handleKey(event: KeyboardEvent) {
   if (event.key === 'Escape') {
     editor.value = false;
     help.value = false;
+    colorSettings.value = false;
   }
-  if ((editor.value || help.value) && event.key === 'Tab') {
+  if ((editor.value || help.value || colorSettings.value) && event.key === 'Tab') {
     const focusable = [
       ...document.querySelectorAll<HTMLElement>(
         '[role="dialog"] button:not(:disabled), [role="dialog"] input, [role="dialog"] select, [role="dialog"] a[href]',
@@ -358,6 +389,7 @@ function handleKey(event: KeyboardEvent) {
   if (
     editor.value ||
     help.value ||
+    colorSettings.value ||
     /INPUT|TEXTAREA|SELECT|BUTTON/.test((event.target as HTMLElement)?.tagName)
   )
     return;
@@ -453,7 +485,7 @@ onBeforeUnmount(() => {
         <CameraScanner
           ref="scanner"
           :face="selected"
-          :disabled="locked || playing"
+          :disabled="locked || playing || colorSettings || editor || help"
           @capture="recordFace"
           @model="model = $event"
         />
@@ -540,7 +572,11 @@ onBeforeUnmount(() => {
                   : `第 ${current + 1} 步 · ${FACE_NAMES[nextMove[0] as Face]}`
               }}</strong>
               <p>
-                {{ done ? '已播放全部步骤，可用摄像头逐面核对实物。' : moveDescription(nextMove) }}
+                {{
+                  done
+                    ? '已播放全部步骤，可用摄像头逐面核对实物。'
+                    : moveDescription(nextMove, NAMES)
+                }}
               </p>
             </div>
             <span class="step-counter">{{ current }} / {{ steps.length }}</span>
@@ -610,6 +646,9 @@ onBeforeUnmount(() => {
           <p>按中心颜色选择面，点击「手动录入」可填写或校正色块。</p>
         </div>
         <div class="face-actions">
+          <button class="text-btn" :disabled="locked" @click="openColorSettings">
+            <Palette :size="14" />自定义配色
+          </button>
           <button class="text-btn muted" :disabled="locked || !hasInput" @click="exportState">
             <Download :size="14" /><span>导出</span></button
           ><button class="text-btn muted" :disabled="locked || !hasInput" @click="reset">
@@ -653,7 +692,7 @@ onBeforeUnmount(() => {
           </div>
           <span>{{
             solution !== null
-              ? '保持白色朝上、绿色朝前，按步骤转动'
+              ? `保持${NAMES.U}色朝上、${NAMES.F}色朝前，按步骤转动`
               : completeFaces.length === 6
                 ? '六面采集完成，可以检查并求解'
                 : `还需采集 ${6 - completeFaces.length} 个面`
@@ -742,6 +781,13 @@ onBeforeUnmount(() => {
       }}<button aria-label="关闭提示" @click="notice = ''"><X :size="15" /></button></div
   ></Transition>
 
+  <ColorSettings
+    v-if="colorSettings"
+    :palette="palette"
+    :has-input="hasInput"
+    @save="savePalette"
+    @close="colorSettings = false"
+  />
   <div v-if="editor" class="modal-backdrop" @click.self="editor = false">
     <section
       class="modal editor-modal"
@@ -815,8 +861,10 @@ onBeforeUnmount(() => {
       <div class="help-section">
         <h3><Camera :size="17" />1. 记录六面</h3>
         <p>
-          使用标准配色：白顶 U、红右 R、绿前 F、黄底 D、橙左 L、蓝后
-          B。按照取景框下方的中心色和朝上色提示，整体转动魔方，再采集当前面。摄像头没有镜像处理。
+          当前配色：{{ NAMES.U }}顶 U、{{ NAMES.R }}右 R、{{ NAMES.F }}前 F、{{ NAMES.D }}底 D、{{
+            NAMES.L
+          }}左 L、{{ NAMES.B }}后 B。可在「六面采集 →
+          自定义配色」修改六种颜色和名称。按照取景框下方的中心色和朝上色提示，整体转动魔方，再采集当前面。摄像头没有镜像处理。
         </p>
         <p>
           加载定位模型后，将魔方放在画面任意位置，检测框会自动跟随，无需对齐固定取景框。保持一个面正对镜头、光线均匀，位置和颜色稳定后点击「采集此面」。目标丢失时自动暂停采集。未加载定位模型时，使用固定九宫格采集。
@@ -846,8 +894,8 @@ onBeforeUnmount(() => {
       <div class="help-section">
         <h3><Box :size="17" />3. 跟着 3D 转动</h3>
         <p>
-          求解后先把实物摆成白色在上、绿色在前。R / L / U / D / F / B 分别是右 / 左 / 上 / 下 / 前 /
-          后面；旋转方向始终按正对正在转动的那个面判断。
+          求解后先把实物摆成{{ NAMES.U }}色在上、{{ NAMES.F }}色在前。R / L / U / D / F / B 分别是右
+          / 左 / 上 / 下 / 前 / 后面；旋转方向始终按正对正在转动的那个面判断。
         </p>
         <div class="notation">
           <span><b>R</b>顺时针 90°</span><span><b>R′</b>逆时针 90°</span

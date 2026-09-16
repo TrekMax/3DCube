@@ -12,8 +12,11 @@ import {
   Focus,
   X,
 } from '@lucide/vue';
-import { COLORS, NAMES, TOP, type Face, type Sticker } from '../lib/cube';
-import { sampleGrid, type Detection } from '../lib/vision';
+import { TOP, type Face, type Sticker } from '../lib/cube';
+import { sampleGrid, createColorClassifier, type Detection } from '../lib/vision';
+import { usePalette } from '../lib/usePalette';
+const { profile, colors: COLORS, names: NAMES } = usePalette();
+const classify = computed(() => createColorClassifier(profile.value.colors));
 import {
   chooseCube,
   intersectionOverUnion,
@@ -54,6 +57,11 @@ let disposed = false,
   generation = 0,
   previous = '',
   inference: Promise<void> | null = null;
+let colorVersion = 0;
+watch(profile, () => {
+  colorVersion++;
+  clearColors();
+});
 const crop = document.createElement('canvas'),
   fullFrame = document.createElement('canvas');
 crop.width = crop.height = 320;
@@ -178,6 +186,9 @@ async function scan() {
   const current = generation,
     startTime = performance.now(),
     frame = view.getBoundingClientRect();
+  const currentColorVersion = colorVersion,
+    palette = profile.value,
+    classifier = classify.value;
   let stage: 'cube' | 'stickers' = locator ? 'cube' : 'stickers';
   let positionStable = true;
   processing.value = true;
@@ -236,9 +247,9 @@ async function scan() {
     }
     stage = 'stickers';
     const result = detector
-      ? await detector.detect(crop)
-      : { colors: sampleGrid(crop), detections: [] };
-    if (disposed || current !== generation) return;
+      ? await detector.detect(crop, palette.yoloFaces)
+      : { colors: sampleGrid(crop, classifier), detections: [] };
+    if (disposed || current !== generation || currentColorVersion !== colorVersion) return;
     colors.value = result.colors;
     boxes.value = result.detections;
     const key = colors.value.join('');

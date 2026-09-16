@@ -49,16 +49,16 @@ const permutation = (values: number[], length: number) =>
   values.length === length &&
   new Set(values).size === length &&
   values.every((v) => Number.isInteger(v) && v >= 0 && v < length);
-export function validateCube(state: string): string[] {
+export function validateCube(state: string, names: Record<Face, string> = NAMES): string[] {
   if (state.length !== 54 || /[^URFDLB]/.test(state))
     return ['还有未录入的色块，请完成六个面的扫描或手动填色。'];
   const errors: string[] = [];
   for (const f of FACES) {
     const count = [...state].filter((c) => c === f).length;
-    if (count !== 9) errors.push(`${NAMES[f]}色有 ${count} 块，应为 9 块。`);
+    if (count !== 9) errors.push(`${names[f]}色有 ${count} 块，应为 9 块。`);
   }
   if (FACES.some((f, i) => state[i * 9 + 4] !== f))
-    errors.push('中心颜色不符合标准配色，请按白顶、绿前、红右录入。');
+    errors.push('中心颜色与面不对应，请按当前配色的 U、R、F、D、L、B 六个面录入。');
   if (errors.length) return errors;
   try {
     const cube = Cube.fromString(state);
@@ -75,10 +75,10 @@ export function validateCube(state: string): string[] {
   }
   return errors;
 }
-export function moveDescription(move: string): string {
-  if (!move) return '保持白色在上、绿色在前，准备开始。';
+export function moveDescription(move: string, names: Record<Face, string> = NAMES): string {
+  if (!move) return `保持${names.U}色在上、${names.F}色在前，准备开始。`;
   const f = move[0] as Face;
-  return `正对${FACE_NAMES[f]}（${NAMES[f]}色中心），${move.endsWith('2') ? '旋转 180°' : move.endsWith("'") ? '逆时针旋转 90°' : '顺时针旋转 90°'}。`;
+  return `正对${FACE_NAMES[f]}（${names[f]}色中心），${move.endsWith('2') ? '旋转 180°' : move.endsWith("'") ? '逆时针旋转 90°' : '顺时针旋转 90°'}。`;
 }
 export function faceletPosition(face: Face, i: number): [number, number, number] {
   const r = Math.floor(i / 3),

@@ -1,5 +1,7 @@
 <script setup lang="ts">
-import { COLORS, NAMES, type Sticker } from '../lib/cube';
+import type { Sticker } from '../lib/cube';
+import { usePalette } from '../lib/usePalette';
+const { colors: COLORS, names: NAMES } = usePalette();
 defineProps<{ colors: Sticker[]; editable?: boolean; small?: boolean; centerLabel?: string }>();
 defineEmits<{ paint: [index: number] }>();
 </script>

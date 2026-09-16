@@ -3,7 +3,9 @@ import { onMounted, onBeforeUnmount, ref, watch } from 'vue';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { COLORS, FACES, faceletPosition, moveRotation, type Face, type Sticker } from '../lib/cube';
+import { FACES, faceletPosition, moveRotation, type Face, type Sticker } from '../lib/cube';
+import { usePalette } from '../lib/usePalette';
+const { colors: COLORS } = usePalette();
 const props = defineProps<{ state: string; nextMove?: string }>();
 const host = ref<HTMLDivElement>();
 const error = ref('');
@@ -30,11 +32,16 @@ const bodyGeometry = new RoundedBoxGeometry(0.968, 0.968, 0.968, 3, 0.075);
 const stickerGeometry = new RoundedBoxGeometry(0.806, 0.806, 0.032, 3, 0.065);
 const bodyMaterial = new THREE.MeshStandardMaterial({ color: '#222832', roughness: 0.43 });
 const materials = Object.fromEntries(
-  Object.entries(COLORS).map(([key, value]) => [
+  Object.entries(COLORS.value).map(([key, value]) => [
     key,
     new THREE.MeshStandardMaterial({ color: value, roughness: 0.31, metalness: 0.02 }),
   ]),
 ) as Record<Sticker, THREE.MeshStandardMaterial>;
+watch(COLORS, (colors) => {
+  for (const sticker of Object.keys(colors) as Sticker[])
+    materials[sticker].color.set(colors[sticker]);
+  needsRender = true;
+});
 const normals: Record<Face, THREE.Vector3> = {
   U: new THREE.Vector3(0, 1, 0),
   R: new THREE.Vector3(1, 0, 0),

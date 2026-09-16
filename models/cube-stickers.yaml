@@ -2,7 +2,8 @@
 path: /absolute/path/to/cube-stickers
 train: images/train
 val: images/val
-# Class IDs MUST match src/lib/vision.ts MODEL_CLASSES.
+# Default six colors. Custom colors are allowed; keep six unique names with IDs 0–5.
+# Match each class ID to a face in the web app: 自定义配色 → YOLO 类别映射.
 names:
   0: white
   1: red

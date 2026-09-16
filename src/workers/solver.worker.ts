@@ -1,10 +1,12 @@
 import Cube from 'cubejs';
-import { validateCube } from '../lib/cube';
+import { validateCube, type Face } from '../lib/cube';
 let initialized = false;
-self.onmessage = (event: MessageEvent<{ id: number; state: string }>) => {
-  const { id, state } = event.data;
+self.onmessage = (
+  event: MessageEvent<{ id: number; state: string; names?: Record<Face, string> }>,
+) => {
+  const { id, state, names } = event.data;
   try {
-    const errors = validateCube(state);
+    const errors = validateCube(state, names);
     if (errors.length) throw new Error(errors.join('\n'));
     if (!initialized) {
       self.postMessage({ id, status: 'initializing' });

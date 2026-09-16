@@ -1,8 +1,7 @@
 """Train a cube locator or six sticker colors and export a browser-ready ONNX model."""
 import argparse
 from pathlib import Path
-
-TASK_NAMES = {"cube": ["cube"], "stickers": ["white", "red", "green", "yellow", "orange", "blue"]}
+from export_yolo import TASK_NAMES, export_model, validate_class_names
 
 
 def main():
@@ -15,18 +14,17 @@ def main():
     parser.add_argument("--device", default="cpu", help="cpu, 0, or another Ultralytics device")
     args = parser.parse_args()
     dataset = args.data or ("models/cube-locator.yaml" if args.task == "cube" else "models/cube-stickers.yaml")
-    expected_names = TASK_NAMES[args.task]
     import yaml
-    from ultralytics import YOLO
-    from export_yolo import export_model
 
     config = yaml.safe_load(Path(dataset).read_text())
-    names = config.get("names")
-    ordered = [names.get(i) for i in range(len(names))] if isinstance(names, dict) else names
-    if ordered != expected_names:
-        raise SystemExit(f"Expected class IDs in this order: {expected_names}")
+    try:
+        validate_class_names(config.get("names") if isinstance(config, dict) else None, args.task)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     if args.imgsz < 32 or args.imgsz % 32:
         raise SystemExit("--imgsz must be a positive multiple of 32")
+
+    from ultralytics import YOLO
 
     model = YOLO(args.model)
     model.train(
