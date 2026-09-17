@@ -1,0 +1,7 @@
+# Matches the Ultralytics version stored in rubik-yolo/best.pt.
+# Install CPU torch wheels first as shown in README.md (Python 3.12).
+torch==2.5.1
+torchvision==0.20.1
+ultralytics==8.3.59
+onnx==1.17.0
+onnxruntime>=1.20,<2

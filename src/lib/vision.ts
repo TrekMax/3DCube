@@ -1,6 +1,6 @@
 import { FACES, COLORS, type Face, type Sticker } from './cube';
 import { referenceClassifier } from './color';
-import { intersectionOverUnion, type CubeDetection } from './localization';
+import { intersectionOverUnion, type CubeDetection, type Rect } from './localization';
 
 export interface Detection {
   x: number;
@@ -146,6 +146,33 @@ export function decodeCubeDetections(
   threshold = 0.5,
 ): CubeDetection[] {
   return decodeYolo(data, dims, size, threshold, 1).map(({ classId: _classId, ...box }) => box);
+}
+/** Select sticker centers within one face, then express boxes in that face's coordinates. */
+export function detectionsInRegion(detections: Detection[], region: Rect): Detection[] {
+  if (
+    ![region.x, region.y, region.width, region.height].every(Number.isFinite) ||
+    region.width <= 0 ||
+    region.height <= 0
+  )
+    throw new Error('色块识别区域无效。');
+  return detections
+    .filter((box) => {
+      const cx = box.x + box.width / 2,
+        cy = box.y + box.height / 2;
+      return (
+        cx >= region.x &&
+        cx < region.x + region.width &&
+        cy >= region.y &&
+        cy < region.y + region.height
+      );
+    })
+    .map((box) => ({
+      ...box,
+      x: (box.x - region.x) / region.width,
+      y: (box.y - region.y) / region.height,
+      width: box.width / region.width,
+      height: box.height / region.height,
+    }));
 }
 export function detectionsToGrid(detections: Detection[]): Sticker[] {
   const grid: Sticker[] = Array(9).fill('?'),

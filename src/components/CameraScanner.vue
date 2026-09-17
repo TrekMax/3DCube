@@ -40,6 +40,7 @@ const active = ref(false),
   message = ref(''),
   modelName = ref(''),
   locatorName = ref('');
+const modelScope = ref<'face' | 'frame'>('face');
 const colors = ref<Sticker[]>(Array(9).fill('?')),
   boxes = ref<Detection[]>([]),
   stable = ref(0),
@@ -191,12 +192,16 @@ async function scan() {
     classifier = classify.value;
   let stage: 'cube' | 'stickers' = locator ? 'cube' : 'stickers';
   let positionStable = true;
+  let region: Rect;
+  const fullFrameColors = detector?.inputScope === 'frame';
   processing.value = true;
   try {
-    if (locator) {
+    if (locator || fullFrameColors) {
       fullFrame.width = v.videoWidth;
       fullFrame.height = v.videoHeight;
       fullFrame.getContext('2d')!.drawImage(v, 0, 0);
+    }
+    if (locator) {
       const candidates = await locator.locate(fullFrame);
       if (disposed || current !== generation) return;
       const previousBox = tracked.value,
@@ -220,6 +225,7 @@ async function scan() {
         return;
       }
       positionStable = !!previousBox && intersectionOverUnion(found, previousBox) >= 0.8;
+      region = found;
       // Read colors from the exact frame that produced this detection, not a later video frame.
       crop
         .getContext('2d', { willReadFrequently: true })!
@@ -241,13 +247,33 @@ async function scan() {
         scale = Math.max(frame.width / v.videoWidth, frame.height / v.videoHeight);
       const sx = (box.left - frame.left + (v.videoWidth * scale - frame.width) / 2) / scale;
       const sy = (box.top - frame.top + (v.videoHeight * scale - frame.height) / 2) / scale;
+      region = {
+        x: sx / v.videoWidth,
+        y: sy / v.videoHeight,
+        width: box.width / scale / v.videoWidth,
+        height: box.height / scale / v.videoHeight,
+      };
       crop
         .getContext('2d', { willReadFrequently: true })!
-        .drawImage(v, sx, sy, box.width / scale, box.height / scale, 0, 0, 320, 320);
+        .drawImage(
+          fullFrameColors ? fullFrame : v,
+          sx,
+          sy,
+          box.width / scale,
+          box.height / scale,
+          0,
+          0,
+          320,
+          320,
+        );
     }
     stage = 'stickers';
     const result = detector
-      ? await detector.detect(crop, palette.yoloFaces)
+      ? await detector.detect(
+          fullFrameColors ? fullFrame : crop,
+          palette.yoloFaces,
+          fullFrameColors ? region : undefined,
+        )
       : { colors: sampleGrid(crop, classifier), detections: [] };
     if (disposed || current !== generation || currentColorVersion !== colorVersion) return;
     colors.value = result.colors;
@@ -289,6 +315,7 @@ async function loadModel(event: Event, purpose: 'stickers' | 'cube') {
       await detector?.release();
       detector = next;
       modelName.value = file.name;
+      modelScope.value = next.inputScope;
       emit('model', file.name);
     }
     if (fault.value === purpose) fault.value = '';
@@ -314,6 +341,7 @@ async function unloadModel(purpose: 'cube' | 'stickers') {
       await detector?.release();
       detector = null;
       modelName.value = '';
+      modelScope.value = 'face';
       emit('model', '');
     }
     if (fault.value === purpose) fault.value = '';
@@ -486,7 +514,7 @@ defineExpose({ openModelPicker: () => positionInput.value?.click(), stop });
       <span
         ><Cpu :size="14" />{{
           modelName
-            ? 'YOLO · ' + modelName
+            ? 'YOLO · ' + modelName + (modelScope === 'frame' ? ' · 全画面识别' : '')
             : autoPosition
               ? '定位区域 · 颜色采样'
               : '固定框 · 颜色采样'

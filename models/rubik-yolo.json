@@ -1,0 +1,68 @@
+{
+  "source_file": "best.pt",
+  "source_sha256": "fbc9451dd8800cc14b5d4ebb4cb5acb9a4e94a9e4d0137fd3f552537badc1cbd",
+  "source_classes": [
+    "blue",
+    "green",
+    "orange",
+    "red",
+    "white",
+    "yellow",
+    "cube face",
+    "side_face"
+  ],
+  "input_shape": [
+    1,
+    3,
+    640,
+    640
+  ],
+  "raw_output_shape": [
+    1,
+    13,
+    8400
+  ],
+  "class_faces": [
+    "U",
+    "R",
+    "F",
+    "D",
+    "L",
+    "B"
+  ],
+  "input_scope": "frame",
+  "limitation": "Six standard colors only; one Blue class. Face boxes are enclosing AABBs, not perspective-rectified faces.",
+  "models": {
+    "stickers": {
+      "file": "rubik-yolo-stickers.onnx",
+      "classes": [
+        "white",
+        "red",
+        "green",
+        "yellow",
+        "orange",
+        "blue"
+      ],
+      "output_shape": [
+        1,
+        10,
+        8400
+      ],
+      "input_name": "cube_guide_full_frame",
+      "sha256": "98c85f038905f0bb9286e05b077612dcdf51bf33963b57e5aeb58eb34472ab16"
+    },
+    "locator": {
+      "file": "rubik-yolo-locator.onnx",
+      "classes": [
+        "cube face"
+      ],
+      "output_shape": [
+        1,
+        5,
+        8400
+      ],
+      "input_name": "cube_guide_full_frame",
+      "sha256": "814912a3125d064d52fbdb92016162be9cb9734b86e926a19ef5305ede2e135d"
+    }
+  }
+}

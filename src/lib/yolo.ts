@@ -1,7 +1,12 @@
 import * as ort from 'onnxruntime-web/wasm';
 import wasmUrl from 'onnxruntime-web/ort-wasm-simd-threaded.wasm?url';
 import mjsUrl from 'onnxruntime-web/ort-wasm-simd-threaded.mjs?url';
-import { decodeDetections, decodeCubeDetections, detectionsToGrid } from './vision';
+import {
+  decodeDetections,
+  decodeCubeDetections,
+  detectionsToGrid,
+  detectionsInRegion,
+} from './vision';
 import { letterbox, undoLetterbox, type Rect } from './localization';
 import { FACES, type Face } from './cube';
 
@@ -13,6 +18,7 @@ export class YoloDetector {
     private session: ort.InferenceSession,
     readonly size: number,
     readonly purpose: 'stickers' | 'cube',
+    readonly inputScope: 'face' | 'frame',
   ) {}
   static async load(file: File, purpose: 'stickers' | 'cube' = 'stickers'): Promise<YoloDetector> {
     const session = await ort.InferenceSession.create(await file.arrayBuffer(), {
@@ -31,7 +37,10 @@ export class YoloDetector {
         shape[2] !== shape[3]
       )
         throw new Error('请导出 batch=1、dynamic=False 的正方形 NCHW 模型。');
-      const detector = new YoloDetector(session, shape[2], purpose);
+      // Our rubik-yolo exporter marks models trained on whole camera frames by input name.
+      // Ordinary six-class models retain the existing face-crop preprocessing.
+      const inputScope = session.inputNames[0] === 'cube_guide_full_frame' ? 'frame' : 'face';
+      const detector = new YoloDetector(session, shape[2], purpose, inputScope);
       // Probe output compatibility before enabling YOLO in the camera panel.
       const input = new ort.Tensor('float32', new Float32Array(3 * detector.size ** 2), [
         1,
@@ -60,12 +69,15 @@ export class YoloDetector {
       throw error;
     }
   }
-  async detect(canvas: HTMLCanvasElement, classFaces: readonly Face[] = FACES) {
+  async detect(canvas: HTMLCanvasElement, classFaces: readonly Face[] = FACES, region?: Rect) {
     if (this.purpose !== 'stickers') throw new Error('请加载六类色块模型用于颜色检测。');
+    if (this.inputScope === 'frame' && !region)
+      throw new Error('全画面色块模型需要指定魔方面区域。');
     const detections = await this.infer(canvas, (data, dims, size) =>
       decodeDetections(data, dims, size, 0.45, classFaces),
     );
-    return { detections, colors: detectionsToGrid(detections) };
+    const selected = region ? detectionsInRegion(detections, region) : detections;
+    return { detections: selected, colors: detectionsToGrid(selected) };
   }
   async locate(canvas: HTMLCanvasElement) {
     if (this.purpose !== 'cube') throw new Error('请加载单类 cube 模型用于定位。');

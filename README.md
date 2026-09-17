@@ -91,6 +91,42 @@ python3 -m unittest discover -s tests -p 'test_*.py' # 模型类别校验，无�
 
 **仓库没有附带已训练的真实魔方权重或标注数据。** Ultralytics 的通用 COCO 权重不能直接作为这里的单类魔方定位或六类色块模型。未加载专用模型时，程序明确显示固定框采样模式，可完成采集、校正与复原。训练脚本需要你提供标注数据；并未以测试用模型替代真实 YOLO 模型。
 
+### 使用现有 rubik-yolo 模型
+
+支持导入 [rubik-yolo](https://github.com/ThatLinuxGuyYouKnow/rubik-yolo) 的 **`best.pt`**。它是 YOLOv8n OBB 权重，包含 Blue、Green、Orange、Red、White、Yellow、cube face、side_face 共 8 类。目录中的 `yolov8n-obb.pt` 是 DOTA 基础权重，不能用于魔方识别。浏览器不直接加载 `.pt` 或原始 OBB 输出，需要先转换：
+
+```bash
+# Python 3.12；CPU 版可避免下载 CUDA 依赖
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install torch==2.5.1 torchvision==0.20.1 --index-url https://download.pytorch.org/whl/cpu
+pip install -r scripts/requirements-rubik-yolo.txt
+python scripts/import_rubik_yolo.py /home/listenai/Desktop/rubik-yolo/best.pt
+```
+
+脚本保留源目录不变，在 `models/` 中生成以下文件，并通过 ONNX Runtime 核对转换前后的数值：
+
+| 文件                       | 页面操作     | 用途                                                         |
+| -------------------------- | ------------ | ------------------------------------------------------------ |
+| `rubik-yolo-locator.onnx`  | 加载定位模型 | 提取 cube face 类别，自动框选魔方面                          |
+| `rubik-yolo-stickers.onnx` | 加载色块模型 | 六种标准色识别，已重排为默认白、红、绿、黄、橙、蓝（URFDLB） |
+| `rubik-yolo.json`          | 无需加载     | 来源哈希、类别和导出结构记录                                 |
+
+模型和中间权重仅保存在本地，Git 不跟踪这些二进制文件。更改默认配色时，应按模型实际颜色设置类别映射。**这个模型只有一个 Blue 类别，不能区分浅蓝、深蓝、透明蓝。** 对这类自定义配色，可先只加载定位模型，继续使用自定义颜色采样并人工核对；使用 YOLO 区分这些颜色需要补充训练数据。
+
+色块模型使用**完整摄像头帧**推理，再将当前魔方面内的色块转换到九宫格坐标。定位和识别使用同一帧；未加载定位模型时，取固定网格范围内的识别结果。页面会显示「全画面识别」。普通六类模型仍使用魔方面裁剪图。
+
+导出器将 OBB 旋转框转换为外接矩形，屏蔽 cube face / side_face 的色块输出，并在输入名 `cube_guide_full_frame` 中记录全画面约定。它不会校正透视或旋转面内九宫格，采集时仍须保持**单面正对镜头、指定中心色朝上**。
+
+在本机用源目录的 5 张验证图片实测：4 张定位成功，其中 3 张得到完整九宫格；另 1 张未检测到面、1 张九宫格不完整。源项目说明验证集很小且与训练场景相似，不能据此推断其他魔方和光线下的准确率。可运行真实权重的浏览器验证（另一个终端先启动 `npm run dev`）：
+
+```bash
+node scripts/verify_rubik_yolo.mjs /home/listenai/Desktop/rubik-yolo/val/images
+.venv/bin/python -m unittest discover -s tests -p 'test_*.py'
+```
+
+浏览器验证使用实际 WASM 推理、样例图片和页面采集按钮，报告与截图保存在 `test-results/rubik-yolo/`，不需要开启实体摄像头。若存在同级 `labels/`，还会对照原始标注并报告差异。本次完整九宫格的 27 格中，26 格与标注一致；`0d246fa0-20251229_172826.jpg` 第 9 格识别为绿色、标注为红色，图像目视为绿色，疑似原标注错误。脚本保留并报告该差异，不修改标签或识别结果；这些样例不足以给出可靠的总体准确率。
+
 ### 自动定位模型（单类 cube）
 
 摄像头卡片底部新增 **「加载定位模型」**。加载后流程为：
@@ -184,7 +220,7 @@ python scripts/export_yolo.py /path/to/best.pt \
 - 定位模型输出：`[1,5,N]`、`[1,N,5]`，或已处理的 `[1,N,6]`；唯一类别 ID 为 0（cube）。
 - 原始输出为 `cx,cy,w,h` + 各类别概率；六列输出为 `x1,y1,x2,y2,score,class_id`。
 - 坐标必须是输入图像像素单位；色块类别 ID 必须符合「自定义配色」中的映射，默认映射为上表对应的 URFDLB。
-- 支持上述魔方定位与色块检测；不支持 segmentation、pose、OBB 或 YOLOv5 的 objectness 输出。
+- 支持上述魔方定位与色块检测；不直接支持 segmentation、pose、原始 OBB 或 YOLOv5 的 objectness 输出。rubik-yolo OBB 可通过上方专用脚本转换。
 - 已自动定位的区域会映射到九宫格；请保持魔方面接近正视，尚未实现任意透视角度的自动面分割或连续转动追踪。
 
 推理异常会明确提示；专用模型加载成功后不会把采色结果伪装成 YOLO 输出。当前实现使用单线程 WASM，实际帧率取决于模型和设备。仅加载模型时才下载本地部署的 ONNX Runtime 资源。
@@ -211,9 +247,13 @@ src/lib/yolo.ts                    ONNX 会话和图像预处理
 src/workers/solver.worker.ts       后台求解与结果校验
 scripts/train_yolo.py              Ultralytics 训练和导出
 scripts/export_yolo.py             已训练权重导出与结构检查
+scripts/import_rubik_yolo.py       rubik-yolo OBB 适配、类别重排和数值校验
+scripts/verify_rubik_yolo.mjs       真实权重的浏览器推理与页面采集验证
 tests/                            单元与浏览器测试
 ```
 
 `tests/fixtures/constant-white-test.onnx` 是恒定色块输出测试模型；`input-driven-cube-test.onnx` 让测试视频的亮度控制输出坐标和置信度，以验证移动、丢失、重新出现和窗口缩放。它们都**不具有真实识别能力**，不可用作实际魔方模型。后者可用 `python3 tests/fixtures/generate_locator.py` 重新生成。
+
+`input-driven-frame-stickers-test.onnx` 同样是测试图，用于验证全画面色块识别与定位坐标一致、目标丢失后清空结果；可用 `python3 tests/fixtures/generate_frame_stickers.py` 重新生成。真实识别能力使用上方 rubik-yolo 验证脚本单独检查。
 
 求解库来自 [cubejs](https://github.com/ldez/cubejs)（MIT）；其旧版、未使用的 npm 工具依赖通过 package overrides 更新。Ultralytics 的许可说明见[原仓库](https://github.com/ultralytics/ultralytics)。

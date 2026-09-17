@@ -3,6 +3,7 @@ import {
   classifyColor,
   decodeDetections,
   detectionsToGrid,
+  detectionsInRegion,
   type Detection,
 } from '../src/lib/vision';
 
@@ -49,5 +50,30 @@ describe('Ultralytics detections', () => {
       { x: -0.5, y: 0, width: 0.1, height: 0.1, score: 0.99, color: 'R' },
     ];
     expect(detectionsToGrid(boxes)).toEqual(Array(9).fill('?'));
+  });
+  it('projects full-frame stickers into an off-center face and excludes neighboring faces', () => {
+    const region = { x: 0.5, y: 0.2, width: 0.3, height: 0.6 };
+    const boxes: Detection[] = Array.from({ length: 9 }, (_, i) => ({
+      x: region.x + (((i % 3) + 0.2) / 3) * region.width,
+      y: region.y + ((Math.floor(i / 3) + 0.2) / 3) * region.height,
+      width: region.width * 0.2,
+      height: region.height * 0.2,
+      score: 0.9,
+      color: i === 4 ? 'R' : 'U',
+    }));
+    boxes.push({ x: 0, y: 0.2, width: 0.1, height: 0.1, score: 1, color: 'B' });
+    const selected = detectionsInRegion(boxes, region);
+    expect(selected).toHaveLength(9);
+    expect(selected[0]!.x).toBeCloseTo(0.2 / 3);
+    expect(selected[0]!.width).toBeCloseTo(0.2);
+    expect(selected[0]!.height).toBeCloseTo(0.2);
+    expect(detectionsToGrid(selected).join('')).toBe('UUUURUUUU');
+    expect(detectionsToGrid(detectionsInRegion(boxes.slice(1), region))[0]).toBe('?');
+    expect(boxes[0]!.x).toBeGreaterThan(region.x);
+  });
+  it('rejects degenerate full-frame regions', () => {
+    for (const width of [0, -1, NaN]) {
+      expect(() => detectionsInRegion([], { x: 0, y: 0, width, height: 1 })).toThrow(/区域/);
+    }
   });
 });
